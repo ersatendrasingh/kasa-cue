@@ -311,6 +311,7 @@ function buildInstructions(draft: DesktopSessionDraft) {
           "Infer what the other person means, even if transcription is imperfect, and answer the latest line only.",
           "Use first person as the user. Sound respectful, calm, and confident, not like an AI or a formal email.",
           "If the user needs time, clarification, agreement, disagreement, status update, apology, or follow-up, provide the best spoken sentence for that situation.",
+          "Treat quick instructions as session cue notes: follow them for today's facts, priorities, talking points, questions to ask, and intended reply style.",
           "Wrap the most important words or phrases in **bold** so they are highlighted in the answer window.",
         ]
       : [
@@ -320,7 +321,12 @@ function buildInstructions(draft: DesktopSessionDraft) {
           "Keep the answer spoken, confident, and complete enough to say in a real conversation.",
         ];
 
-  return [...baseInstructions, draft.instructions.trim()]
+  return [
+    ...baseInstructions,
+    draft.instructions.trim()
+      ? `Quick session cue notes:\n${draft.instructions.trim()}`
+      : "",
+  ]
     .filter(Boolean)
     .join("\n");
 }

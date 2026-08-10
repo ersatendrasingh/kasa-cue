@@ -42,6 +42,7 @@
       "LSUIElement": true,
       "NSCameraUsageDescription": "Kasa Cue uses screen capture only when you ask it to analyze your screen.",
       "NSMicrophoneUsageDescription": "Kasa Cue uses your microphone to transcribe live conversation and suggest replies.",
+      "NSAudioCaptureUsageDescription": "Kasa Cue captures meeting and system audio only while you enable system-audio listening, so it can create a live transcript on your signed-in devices.",
       "NSScreenCaptureDescription": "Kasa Cue captures your screen when you press Analyze so it can understand visible context."
     },
     "icon": "assets/kasa-icon.png",

@@ -22,6 +22,7 @@ export function AudioSetupPanel({
   onStepChange,
 }: AudioSetupPanelProps) {
   const [micLevel, setMicLevel] = useState(0);
+  const [systemLevel, setSystemLevel] = useState(0);
   const [status, setStatus] = useState("Ready to test microphone.");
   const [isTesting, setIsTesting] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -60,43 +61,102 @@ export function AudioSetupPanel({
     }
   }
 
-  async function testAudio() {
+  async function testMicrophone() {
     setIsTesting(true);
     setStatus("Listening for mic input...");
     setMicLevel(0);
 
     try {
       streamRef.current?.getTracks().forEach((track) => track.stop());
-      const audio: MediaTrackConstraints = {
-        autoGainControl: true,
-        channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-      };
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: getMicrophoneConstraints(selectedDeviceId),
+      });
+      streamRef.current = stream;
+      void refreshAudioDevices();
+      await measureAudioLevel({
+        label: "Mic",
+        minPeak: 3,
+        onLevel: setMicLevel,
+        stream,
+        successMessage: "Mic is working. You can create the session.",
+      });
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? `Mic test failed: ${error.message}`
+          : "Mic test failed."
+      );
+    } finally {
+      setIsTesting(false);
+    }
+  }
 
-      if (selectedDeviceId) {
-        audio.deviceId = { exact: selectedDeviceId };
-      }
+  async function testSystemAudio() {
+    setIsTesting(true);
+    setStatus("Testing system audio. Play meeting/browser audio now...");
+    setSystemLevel(0);
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio });
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (!AudioContextClass) {
-        throw new Error("Audio testing is not supported in this environment.");
-      }
-      const audioContext = new AudioContextClass();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      const samples = new Uint8Array(analyser.frequencyBinCount);
-      let peakLevel = 0;
+    try {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      const stream = selectedSystemDeviceId
+        ? await navigator.mediaDevices.getUserMedia({
+            audio: getSystemAudioConstraints(selectedSystemDeviceId),
+          })
+        : await getDisplayAudioStream();
 
       streamRef.current = stream;
       void refreshAudioDevices();
-      analyser.fftSize = 256;
-      source.connect(analyser);
+      await measureAudioLevel({
+        label: "System",
+        minPeak: 2,
+        onLevel: setSystemLevel,
+        stream,
+        successMessage:
+          "System audio is working. Keep this source selected for live calls.",
+      });
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? `System audio test failed: ${error.message}`
+          : "System audio test failed."
+      );
+    } finally {
+      setIsTesting(false);
+    }
+  }
 
+  async function measureAudioLevel({
+    label,
+    minPeak,
+    onLevel,
+    stream,
+    successMessage,
+  }: {
+    label: string;
+    minPeak: number;
+    onLevel: (value: number) => void;
+    stream: MediaStream;
+    successMessage: string;
+  }) {
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+
+    if (!AudioContextClass) {
+      throw new Error("Audio testing is not supported in this environment.");
+    }
+
+    const audioContext = new AudioContextClass();
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    const samples = new Uint8Array(analyser.frequencyBinCount);
+    let peakLevel = 0;
+
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    await new Promise<void>((resolve) => {
       const startedAt = Date.now();
       const intervalId = window.setInterval(() => {
         analyser.getByteFrequencyData(samples);
@@ -105,28 +165,74 @@ export function AudioSetupPanel({
         const nextLevel = Math.min(100, Math.round((average / 128) * 100));
 
         peakLevel = Math.max(peakLevel, nextLevel);
-        setMicLevel(nextLevel);
+        onLevel(nextLevel);
 
-        if (Date.now() - startedAt > 2500) {
+        if (Date.now() - startedAt > 3000) {
           window.clearInterval(intervalId);
-          stream.getTracks().forEach((track) => track.stop());
-          void audioContext.close();
-          setIsTesting(false);
-          setStatus(
-            peakLevel > 3
-              ? "Mic is working. You can create the session."
-              : "Mic connected, but no clear input detected."
-          );
+          resolve();
         }
       }, 120);
-    } catch (error) {
-      setIsTesting(false);
-      setStatus(
-        error instanceof Error
-          ? `Mic test failed: ${error.message}`
-          : "Mic test failed."
+    });
+
+    stream.getTracks().forEach((track) => track.stop());
+    void audioContext.close();
+    setStatus(
+      peakLevel > minPeak
+        ? successMessage
+        : `${label} connected, but no clear audio detected. Keep audio playing and check the selected source.`
+    );
+  }
+
+  function getMicrophoneConstraints(deviceId: string): MediaTrackConstraints {
+    const audio: MediaTrackConstraints = {
+      autoGainControl: true,
+      channelCount: 1,
+      echoCancellation: false,
+      noiseSuppression: false,
+    };
+
+    if (deviceId) {
+      audio.deviceId = { exact: deviceId };
+    }
+
+    return audio;
+  }
+
+  function getSystemAudioConstraints(deviceId: string): MediaTrackConstraints {
+    return {
+      autoGainControl: false,
+      channelCount: 2,
+      deviceId: { exact: deviceId },
+      echoCancellation: false,
+      noiseSuppression: false,
+    };
+  }
+
+  async function getDisplayAudioStream() {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      throw new Error("Screen/system audio capture is not available here.");
+    }
+
+    const captureStream = await navigator.mediaDevices.getDisplayMedia({
+      audio: {
+        autoGainControl: false,
+        echoCancellation: false,
+        noiseSuppression: false,
+      },
+      video: true,
+    });
+    const audioTracks = captureStream.getAudioTracks();
+
+    captureStream.getVideoTracks().forEach((track) => track.stop());
+
+    if (!audioTracks.length) {
+      captureStream.getTracks().forEach((track) => track.stop());
+      throw new Error(
+        "No system audio track was returned. On macOS, select a loopback input such as BlackHole/Loopback, or enable Screen & System Audio Recording and restart Kasa Cue."
       );
     }
+
+    return new MediaStream(audioTracks);
   }
 
   return (
@@ -195,29 +301,39 @@ export function AudioSetupPanel({
         <div className="mt-4 space-y-3 text-sm text-slate-500">
           <Meter icon={<Mic className="size-4" />} label="Mic" value={micLevel} />
           <Meter
-            hint="Loopback/mic fallback"
+            hint="Loopback or screen audio"
             icon={<Volume2 className="size-4" />}
             label="System"
-            value={0}
+            value={systemLevel}
           />
         </div>
 
         <p className="mt-3 text-xs text-slate-500">{status}</p>
 
-        <div className="mt-4 grid grid-cols-[1fr_auto] gap-3">
+        <div className="mt-4 grid grid-cols-[1fr_1fr_auto] gap-3">
           <Button
             className="h-10 rounded-xl hover:bg-slate-100 hover:text-slate-950"
             disabled={isTesting}
-            onClick={() => void testAudio()}
+            onClick={() => void testMicrophone()}
             type="button"
             variant="outline"
           >
-            {isTesting ? "Testing..." : "Test Audio"}
+            {isTesting ? "Testing..." : "Test Mic"}
+          </Button>
+          <Button
+            className="h-10 rounded-xl hover:bg-slate-100 hover:text-slate-950"
+            disabled={isTesting}
+            onClick={() => void testSystemAudio()}
+            type="button"
+            variant="outline"
+          >
+            {isTesting ? "Testing..." : "Test System"}
           </Button>
           <Button
             className="h-10 gap-2 rounded-xl hover:bg-slate-100 hover:text-slate-950"
             onClick={() => {
               setMicLevel(0);
+              setSystemLevel(0);
               setSelectedDeviceId("");
               setSelectedSystemDeviceId("");
               window.localStorage.removeItem(AUDIO_DEVICE_STORAGE_KEY);

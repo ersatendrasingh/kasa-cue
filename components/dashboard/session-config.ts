@@ -4,29 +4,21 @@ import {
   MessageSquareText,
   Play,
   Settings2,
-  UserRoundCheck,
   WandSparkles,
 } from "lucide-react";
 
 export const sessionModes = [
   {
-    id: "interview",
-    title: "Interview",
-    description: "Technical, HR, behavioral, and follow-up answers.",
-    icon: UserRoundCheck,
-    accent: "border-indigo-300 bg-indigo-50 text-indigo-700",
-  },
-  {
     id: "normal-talk",
-    title: "Normal talk",
-    description: "Everyday English, meeting replies, and confidence support.",
+    title: "Team meeting",
+    description: "Daily standups, project discussions, and internal communication.",
     icon: MessageSquareText,
     accent: "border-emerald-300 bg-emerald-50 text-emerald-700",
   },
   {
     id: "client-call",
-    title: "Client call",
-    description: "Short professional answers for updates, risks, and planning.",
+    title: "Client call / KT",
+    description: "Client updates, project KT, risks, decisions, and planning.",
     icon: BriefcaseBusiness,
     accent: "border-amber-300 bg-amber-50 text-amber-800",
   },
@@ -35,15 +27,15 @@ export const sessionModes = [
 export const setupSteps = [
   {
     label: "Optional",
-    title: "Add profile context",
-    body: "Resume, project notes, or meeting background.",
+    title: "Add meeting context",
+    body: "Agenda, project notes, client brief, or daily update.",
     action: "Attach in setup",
     icon: FileText,
   },
   {
     label: "Step 1",
     title: "Choose session mode",
-    body: "Interview, client call, or normal conversation.",
+    body: "Team meeting, daily standup, client call, or project KT.",
     action: "Choose mode",
     icon: WandSparkles,
   },

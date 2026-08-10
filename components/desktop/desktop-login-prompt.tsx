@@ -17,7 +17,7 @@ export function DesktopLoginPrompt() {
 
   return (
     <DesktopWindowShell>
-      <div className="flex min-h-[520px] flex-col justify-center space-y-5 p-6 text-slate-950">
+      <div className="flex h-full min-h-[440px] flex-col justify-center space-y-5 p-6 text-slate-950">
         <div className="grid size-12 place-items-center rounded-xl bg-slate-950 text-white">
           <LockKeyhole className="size-5" />
         </div>

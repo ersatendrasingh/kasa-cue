@@ -17,7 +17,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Kasa Cue",
-  description: "Realtime call transcript and suggested reply workspace.",
+  description:
+    "Mobile-ready live transcripts and suggested replies for office meetings, client calls, standups, and project KT.",
   icons: {
     apple: "/apple-icon.png",
     icon: "/icon.png",

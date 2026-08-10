@@ -7,15 +7,15 @@ import {
 import type { ModeOption } from "./types";
 
 export const modeOptions: ModeOption[] = [
-  { value: "interview", label: "Interview", icon: UserRoundCheck },
-  { value: "normal-talk", label: "Normal talk", icon: Volume2 },
-  { value: "client-call", label: "Client call", icon: BriefcaseBusiness },
+  { value: "normal-talk", label: "Team meeting", icon: Volume2 },
+  { value: "client-call", label: "Client call / KT", icon: BriefcaseBusiness },
+  { value: "interview", label: "Past session", icon: UserRoundCheck },
 ];
 
 export const modeDescriptions: Record<string, string> = {
-  interview: "Interview answers with confidence and examples.",
-  "normal-talk": "Everyday conversation and natural replies.",
-  "client-call": "Professional updates, risks, and next steps.",
+  interview: "Legacy saved session.",
+  "normal-talk": "Standups, team meetings, and daily work communication.",
+  "client-call": "Client updates, project KT, risks, and next steps.",
 };
 
 export const modelOptions = [
@@ -41,7 +41,7 @@ export const modelOptions = [
     value: "gpt-5",
     label: "GPT-5 — Smart",
     tag: "Premium",
-    description: "Highest quality option for important interviews and calls.",
+    description: "Highest quality option for important meetings and calls.",
   },
   {
     value: "gpt-4.1",

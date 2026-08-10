@@ -34,6 +34,11 @@ export function DesktopTranscriptBar({
       ? "Listening..."
       : placeholder;
   const displayText = visibleValue || visiblePlaceholder;
+  const shouldMarquee = Boolean(visibleValue) && displayText.length > 48;
+  const marqueeDuration = `${Math.min(
+    26,
+    Math.max(10, Math.ceil(displayText.length / 8))
+  )}s`;
 
   return (
     <label
@@ -45,15 +50,29 @@ export function DesktopTranscriptBar({
           isListening || isTranscribing ? "text-emerald-300" : "text-slate-500"
         }`}
       />
-      <span className="relative min-w-0 flex-1 overflow-hidden whitespace-nowrap">
-        <span
-          className={`block truncate text-left ${
-            visibleValue ? "text-slate-100" : "text-slate-500"
-          }`}
-          title={displayText}
-        >
-          {displayText}
-        </span>
+      <span
+        aria-live="polite"
+        className="transcript-marquee-mask relative block min-w-0 flex-1 overflow-hidden whitespace-nowrap"
+      >
+        {shouldMarquee ? (
+          <span
+            key={displayText}
+            className="transcript-marquee-track inline-block w-max max-w-none font-medium text-slate-100"
+            style={{ animationDuration: marqueeDuration }}
+            title={displayText}
+          >
+            {displayText}
+          </span>
+        ) : (
+          <span
+            className={`block w-full truncate text-right font-medium ${
+              visibleValue ? "text-slate-100" : "text-slate-500"
+            }`}
+            title={displayText}
+          >
+            {displayText}
+          </span>
+        )}
       </span>
       {isListening || isTranscribing ? (
         <Radio className="size-3.5 shrink-0 animate-pulse text-emerald-300" />

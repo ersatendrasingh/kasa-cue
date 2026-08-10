@@ -1,6 +1,6 @@
 {
   "name": "nextproject",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Kasa Cue desktop interview assistant",
   "author": "Kasa Cue",
@@ -13,6 +13,7 @@
     "desktop:pack:windows": "electron-builder --projectDir electron --config ../electron-builder.desktop.json --win nsis --x64",
     "dev": "next dev",
     "build": "next build",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "postbuild": "mkdir -p .next/standalone/.next && cp -R public .next/standalone/public && cp -R .next/static .next/standalone/.next/static",
     "start": "next start",
     "start:standalone": "node .next/standalone/server.js",

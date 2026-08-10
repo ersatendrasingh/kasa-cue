@@ -2,7 +2,7 @@
 
 import { Check, FileText, Loader2, Play, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { modelOptions } from "@/components/workspace/options";
 import type { UserDocumentSummary } from "@/components/workspace/types";
 
@@ -31,12 +32,13 @@ export function StartSessionModal({
   onClose,
 }: StartSessionModalProps) {
   const router = useRouter();
-  const [mode, setMode] = useState<SessionModeId>("interview");
-  const [title, setTitle] = useState("Interview session");
+  const [mode, setMode] = useState<SessionModeId>("normal-talk");
+  const [title, setTitle] = useState("Team meeting");
   const [company, setCompany] = useState("");
   const [position, setPosition] = useState("");
-  const [language, setLanguage] = useState("auto");
+  const [language, setLanguage] = useState("english");
   const [model, setModel] = useState("gpt-4o-mini");
+  const [quickInstructions, setQuickInstructions] = useState("");
   const [resumeDocumentId, setResumeDocumentId] = useState("");
   const [referenceDocumentIds, setReferenceDocumentIds] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -51,16 +53,6 @@ export function StartSessionModal({
     [documents]
   );
 
-  useEffect(() => {
-    if (mode === "interview" && !resumeDocumentId && resumeDocuments[0]) {
-      const timerId = window.setTimeout(() => {
-        setResumeDocumentId(resumeDocuments[0].id);
-      }, 0);
-
-      return () => window.clearTimeout(timerId);
-    }
-  }, [mode, resumeDocumentId, resumeDocuments]);
-
   if (!open) {
     return null;
   }
@@ -71,7 +63,7 @@ export function StartSessionModal({
   const selectedReferences = referenceDocuments.filter((document) =>
     referenceDocumentIds.includes(document.id)
   );
-  const shouldShowResume = mode === "interview";
+  const shouldShowResume = false;
   const shouldShowReferences = true;
 
   async function startSession() {
@@ -102,7 +94,9 @@ export function StartSessionModal({
         },
         body: JSON.stringify({
           context,
-          instructions: getDefaultInstructions(mode),
+          instructions: [getDefaultInstructions(mode), quickInstructions.trim()]
+            .filter(Boolean)
+            .join("\n\n"),
           language,
           mode,
           model,
@@ -145,10 +139,16 @@ export function StartSessionModal({
     );
   }
 
+  function addBriefTemplate(template: string) {
+    setQuickInstructions((current) =>
+      current.trim() ? `${current.trim()}\n\n${template}` : template
+    );
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
-      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-0 sm:px-4 sm:py-6">
+      <div className="flex max-h-[100dvh] w-full max-w-3xl flex-col overflow-hidden rounded-none border border-slate-200 bg-white shadow-2xl sm:max-h-[92vh] sm:rounded-lg">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
           <div>
             <h2 className="text-xl font-semibold">Start session</h2>
             <p className="text-sm text-slate-500">
@@ -167,7 +167,7 @@ export function StartSessionModal({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="space-y-4 p-5">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-1">
-              <div className="grid gap-1 sm:grid-cols-3">
+              <div className="grid gap-1 sm:grid-cols-2">
               {sessionModes.map((item) => {
                 const Icon = item.icon;
                 const active = item.id === mode;
@@ -182,15 +182,10 @@ export function StartSessionModal({
                     key={item.id}
                     onClick={() => {
                       setMode(item.id);
-                      setTitle(`${item.title} session`);
-                      if (item.id !== "interview") {
-                        setResumeDocumentId("");
-                      }
+                      setTitle(item.title);
+                      setResumeDocumentId("");
                       if (item.id === "normal-talk") {
                         setCompany("");
-                        if (model === "gpt-4o-mini") {
-                          setModel("gpt-4.1-mini");
-                        }
                       }
                     }}
                     type="button"
@@ -218,7 +213,7 @@ export function StartSessionModal({
                   onChange={(event) => setTitle(event.target.value)}
                 />
               </Field>
-              <Field label="Language">
+              <Field label="Reply language">
                 <Select value={language} onValueChange={setLanguage}>
                   <SelectTrigger className="h-10 w-full">
                     <SelectValue />
@@ -271,6 +266,32 @@ export function StartSessionModal({
                 </Select>
               </Field>
             </div>
+            <Field label="Meeting brief before you join">
+              <p className="text-xs leading-5 text-slate-500">
+                Hindi, Hinglish, ya English mein points likho. Kasa inhe poori
+                meeting yaad rakhega aur English replies, questions, aur updates
+                mein use karega.
+              </p>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {meetingBriefTemplates.map((template) => (
+                  <button
+                    className="shrink-0 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                    key={template.label}
+                    onClick={() => addBriefTemplate(template.value)}
+                    type="button"
+                  >
+                    + {template.label}
+                  </button>
+                ))}
+              </div>
+              <Textarea
+                className="min-h-36 resize-none text-sm leading-6"
+                maxLength={4000}
+                placeholder="Example: Kal login API complete ki. Aaj testing aur PR karunga. Blocker: staging credentials nahi mile. Manager se next frontend task poochna hai."
+                value={quickInstructions}
+                onChange={(event) => setQuickInstructions(event.target.value)}
+              />
+            </Field>
             <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3">
                 <p className="text-sm font-semibold">Files for this session</p>
@@ -291,10 +312,10 @@ export function StartSessionModal({
                 {shouldShowReferences ? (
                   <DocumentPicker
                     documents={referenceDocuments}
-                    emptyText="No saved meeting briefs or reference documents yet."
+                    emptyText="No saved cue notes or reference documents yet."
                     label={
                       mode === "normal-talk"
-                        ? "Meeting briefs / reference notes"
+                        ? "Daily cue notes / talking points"
                         : "Reference documents"
                     }
                     multiple
@@ -314,7 +335,7 @@ export function StartSessionModal({
           </p>
         ) : null}
 
-        <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 px-4 py-4 sm:flex sm:justify-end sm:px-6">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
@@ -335,6 +356,23 @@ export function StartSessionModal({
     </div>
   );
 }
+
+const meetingBriefTemplates = [
+  {
+    label: "Daily standup",
+    value: "Yesterday:\nToday:\nBlockers:\nQuestions / help needed:",
+  },
+  {
+    label: "Project / KT",
+    value:
+      "Project / topic:\nWhat I understand:\nWhat I need clarified:\nQuestions to ask:",
+  },
+  {
+    label: "Client call",
+    value:
+      "Update:\nRisks / blockers:\nDecision needed:\nQuestions to ask:\nNext step:",
+  },
+];
 
 function Field({
   children,
@@ -426,22 +464,14 @@ function DocumentPicker({
 }
 
 function getModeShortDescription(mode: SessionModeId) {
-  if (mode === "interview") {
-    return "Questions and answers";
-  }
-
   if (mode === "normal-talk") {
-    return "Natural work calls";
+    return "Standups and team calls";
   }
 
   return "Updates and planning";
 }
 
 function getTopicLabel(mode: SessionModeId) {
-  if (mode === "interview") {
-    return "Position";
-  }
-
   if (mode === "client-call") {
     return "Call topic";
   }
@@ -450,56 +480,35 @@ function getTopicLabel(mode: SessionModeId) {
 }
 
 function getTopicPlaceholder(mode: SessionModeId) {
-  if (mode === "interview") {
-    return "Example: HR Negotiable Call";
-  }
-
   if (mode === "client-call") {
     return "Example: Sprint status update";
   }
 
-  return "Example: Daily English practice";
+  return "Example: Daily standup / sprint planning";
 }
 
 function getFileHelpText(mode: SessionModeId) {
-  if (mode === "interview") {
-    return "Pick one resume and optional reference documents.";
-  }
-
   if (mode === "client-call") {
     return "Attach project notes, PRDs, agendas, or call references.";
   }
 
-  return "Optional: select meeting notes, agenda, company context, vocabulary, or talking points so replies match today's call.";
+  return "Optional: select daily cue notes, yesterday/today updates, agenda, company context, or talking points so replies stay consistent with today's call.";
 }
 
 function getDefaultInstructions(mode: SessionModeId) {
-  if (mode === "interview") {
-    return [
-      "Interview mode: answer as the candidate.",
-      "Use the selected resume as the source of the user's background, experience, projects, and strengths.",
-      "For questions like 'tell me about yourself' or 'introduce yourself', create a complete natural introduction using the resume, target role, company, and saved user instructions.",
-      "Keep the answer spoken, confident, genuine, and complete enough for the interviewer.",
-    ].join(" ");
-  }
-
   if (mode === "client-call") {
     return "Client call mode: answer as the professional on the call. Use the company, call topic, reference documents, and saved instructions to give clear status, risks, decisions, and next steps.";
   }
 
-  return "Normal talk mode: answer naturally for the live conversation. Keep it friendly, clear, and useful without pretending it is an interview.";
+  return "Team meeting mode: help with daily standups, project discussions, manager calls, and routine workplace communication. Answer naturally in first person. If daily cue notes or reference documents are selected, use them as the source of truth for yesterday, today, blockers, decisions, questions, and next steps.";
 }
 
 function getPurposeDescription(mode: SessionModeId) {
-  if (mode === "interview") {
-    return "Prepare live interview answers tailored to the candidate profile and selected resume.";
-  }
-
   if (mode === "client-call") {
     return "Prepare live client-call replies using the call topic and attached reference material.";
   }
 
-  return "Prepare natural conversation replies.";
+  return "Prepare clear replies for team meetings, daily standups, project discussions, and routine work communication.";
 }
 
 function formatDate(value: string | Date) {

@@ -189,6 +189,8 @@ async function extractStructuredSummaryWithAI({
               "You extract reusable context from uploaded user documents for a live AI reply assistant.",
               "Do not guess or invent missing facts.",
               "Keep exact numbers, names, dates, companies, roles, projects, education, links, and constraints from the document.",
+              "For daily cue notes, status notes, meeting scripts, or talking points, preserve what the user did, what they plan to do, what they should say, and what they should ask.",
+              "If the document is written in Hindi or Hinglish, extract the meaning into clear English while preserving exact names, numbers, dates, tools, and original intent.",
               "Return compact markdown with clear labels so another AI can use it later.",
             ].join(" "),
           },
@@ -233,10 +235,10 @@ function getExtractionInstruction(documentType: string) {
 
   return [
     "Extract the reusable reference context.",
-    "Treat this as a possible meeting brief for a live workplace call.",
-    "Include: meeting topic, agenda, user's role/side, goals, desired outcome, talking points, facts, data points, constraints, decisions, risks, blockers, open questions, terminology, stakeholders, timelines, deadlines, names, numbers, and likely questions.",
+    "Treat this as a possible daily cue sheet, meeting brief, status note, report script, or talking-points document for a live workplace call.",
+    "Include: meeting topic, agenda, user's role/side, goals, desired outcome, yesterday's completed work, today's plan, talking points, facts, data points, constraints, decisions, risks, blockers, open questions, questions to ask, terminology, stakeholders, timelines, deadlines, names, numbers, and likely questions.",
     "Extract suggested reply style if present: polite, firm, ask for clarification, give status, negotiate, explain delay, commit to next action, or escalate.",
-    "If the document is notes or a brief, preserve the user's intent and exact important details.",
+    "If the document is notes or a brief, preserve the user's intent, priority order, and exact important details so replies stay consistent with the document.",
   ].join(" ");
 }
 

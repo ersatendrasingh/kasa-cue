@@ -182,7 +182,7 @@ export default async function SessionDetailPage({
               <TextCard title="Instructions" value={session.instructions} />
             ) : null}
             {session.context ? (
-              <TextCard title="Current memory" value={session.context} />
+              <TextCard title="Meeting setup" value={session.context} />
             ) : null}
           </aside>
         </div>

@@ -22,19 +22,19 @@ export default function UserDashboard({
   return (
     <DashboardShell user={user} onStartSetup={() => setIsStartModalOpen(true)}>
       <div className="border-b border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950 sm:px-6">
-        <span className="font-semibold">New:</span> Start every live session
-        from a setup modal, then review saved history later.
+        <span className="font-semibold">Mobile ready:</span> Use Kasa Cue for
+        team meetings, daily standups, client calls, and project KT.
       </div>
 
       <div className="flex-1 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 className="text-3xl font-semibold tracking-tight">
-              Prepare your next conversation.
+              Prepare your next work meeting.
             </h2>
             <p className="mt-2 max-w-2xl text-slate-600">
-              Choose the session type, attach context, set instructions, then
-              continue into the live workspace.
+              Add your agenda or project notes, choose the call type, and open
+              a live mobile-friendly transcript and reply workspace.
             </p>
           </div>
           <Button

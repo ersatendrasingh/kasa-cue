@@ -18,6 +18,7 @@ export type UserDocumentSummary = {
 export type ActiveWorkspaceSession = {
   id: string;
   context: string | null;
+  historyContext: string;
   instructions: string | null;
   language: string;
   mode: "interview" | "normal-talk" | "client-call";

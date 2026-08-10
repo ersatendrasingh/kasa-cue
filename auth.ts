@@ -99,7 +99,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.role = user.role;
       }
 
-      if (token.email) {
+      if (token.email && (Boolean(user) || !token.sub || !token.role)) {
         try {
           const email = token.email.toLowerCase();
           const dbUser =

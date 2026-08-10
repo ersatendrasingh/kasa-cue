@@ -49,6 +49,50 @@ export default async function WorkspacePage({ searchParams }: WorkspacePageProps
     redirect("/dashboard");
   }
 
+  const [recentSessions, referenceDocuments] = await Promise.all([
+    prisma.communicationSession.findMany({
+      where: {
+        userId: session.user.id,
+      },
+      orderBy: {
+        startedAt: "desc",
+      },
+      take: 8,
+      select: {
+        id: true,
+        startedAt: true,
+        title: true,
+        turns: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          take: 20,
+          select: {
+            content: true,
+            speaker: true,
+          },
+        },
+      },
+    }),
+    prisma.userDocument.findMany({
+      where: {
+        id: {
+          in: normalizeStringArray(activeSession.referenceDocumentIds),
+        },
+        userId: session.user.id,
+      },
+      select: {
+        extractedText: true,
+        fileName: true,
+      },
+    }),
+  ]);
+  const historyContext = buildHistorySnapshot({
+    activeSessionId: activeSession.id,
+    recentSessions,
+    referenceDocuments,
+  });
+
   if (
     activeSession.mode === "interview" &&
     !activeSession.resumeDocumentId
@@ -90,6 +134,7 @@ export default async function WorkspacePage({ searchParams }: WorkspacePageProps
     <CopilotApp
       activeSession={{
         ...activeSession,
+        historyContext,
         mode: normalizeMode(activeSession.mode),
         referenceDocumentIds: normalizeStringArray(
           activeSession.referenceDocumentIds
@@ -118,4 +163,63 @@ function normalizeStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function buildHistorySnapshot({
+  activeSessionId,
+  recentSessions,
+  referenceDocuments,
+}: {
+  activeSessionId: string;
+  recentSessions: Array<{
+    id: string;
+    startedAt: Date;
+    title: string | null;
+    turns: Array<{ content: string; speaker: string }>;
+  }>;
+  referenceDocuments: Array<{
+    extractedText: string | null;
+    fileName: string;
+  }>;
+}) {
+  const documents = referenceDocuments
+    .map((document) =>
+      [
+        `Reference document: ${document.fileName}`,
+        document.extractedText?.slice(0, 3500) ?? "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+    .join("\n\n")
+    .slice(0, 2200);
+  const history = recentSessions
+    .map((savedSession) => {
+      const timeline = savedSession.turns
+        .slice()
+        .reverse()
+        .map((turn) => `${formatSpeaker(turn.speaker)}: ${turn.content.slice(0, 700)}`)
+        .join("\n");
+
+      return [
+        savedSession.id === activeSessionId
+          ? "Current session saved history"
+          : "Previous meeting history",
+        `Date: ${savedSession.startedAt.toISOString()}`,
+        savedSession.title ? `Title: ${savedSession.title}` : "",
+        timeline,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n\n")
+    .slice(0, 3800);
+
+  return [documents, history].filter(Boolean).join("\n\n").slice(0, 6000);
+}
+
+function formatSpeaker(speaker: string) {
+  if (speaker === "assistant") return "Previous suggested reply";
+  if (speaker === "other") return "Other speaker";
+  return "User";
 }

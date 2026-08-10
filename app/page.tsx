@@ -27,15 +27,15 @@ export default async function Home() {
           <div className="flex flex-col justify-center">
             <div className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-sm font-medium text-emerald-100">
               <Sparkles className="size-4" />
-              Realtime English replies for live calls
+              Mobile-ready support for everyday work meetings
             </div>
             <h1 className="max-w-4xl text-5xl font-semibold tracking-tight sm:text-6xl lg:text-7xl">
-              Speak better in every meeting with Kasa Cue.
+              Stay clear and confident in every work meeting.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-200">
-              Kasa Cue listens quietly during calls, interviews, and manager
-              conversations, then prepares a clear answer you can speak in your
-              own voice.
+              Kasa Cue captures team meetings, client calls, daily standups,
+              and project KT, then turns the conversation into a clear
+              transcript and a reply you can speak in your own voice.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -53,7 +53,7 @@ export default async function Home() {
               </Link>
             </div>
             <div className="mt-8 grid max-w-2xl gap-3 text-sm text-slate-200 sm:grid-cols-3">
-              {["Normal calls", "Mock interviews", "Client meetings"].map((item) => (
+              {["Daily standups", "Client calls", "Project KT"].map((item) => (
                 <div className="flex items-center gap-2" key={item}>
                   <CheckCircle2 className="size-4 text-emerald-300" />
                   {item}
@@ -74,7 +74,7 @@ export default async function Home() {
                     />
                     <div>
                       <p className="font-semibold">Answer window</p>
-                      <p className="text-xs text-slate-500">Normal talk mode</p>
+                      <p className="text-xs text-slate-500">Team meeting mode</p>
                     </div>
                   </div>
                   <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
@@ -142,15 +142,15 @@ export default async function Home() {
                 <BriefcaseBusiness className="size-6" />
               </div>
               <p className="text-sm font-semibold uppercase tracking-wide text-indigo-700">
-                Interview mode
+                Work meeting context
               </p>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight">
-                Turn your resume and reference docs into better answers.
+                Turn agendas and project notes into better replies.
               </h2>
               <p className="mt-4 text-base leading-7 text-slate-700">
-                Upload your resume, meeting topic, or role notes. Kasa Cue uses
-                that context to suggest answers that sound specific, confident,
-                and relevant to your actual experience.
+                Add a meeting agenda, project notes, client brief, or daily
+                update. Kasa Cue uses that context to keep every reply specific,
+                accurate, and useful for the current discussion.
               </p>
             </div>
           </div>
@@ -171,8 +171,8 @@ export default async function Home() {
             {[
               {
                 icon: Headphones,
-                title: "Normal talk",
-                text: "Use it when a manager or teammate asks something and you need a polished English reply.",
+                title: "Daily communication",
+                text: "Use it when a manager or teammate asks something and you need a clear professional reply.",
               },
               {
                 icon: Mic2,
@@ -187,7 +187,7 @@ export default async function Home() {
               {
                 icon: MonitorUp,
                 title: "Desktop overlay",
-                text: "Use the Mac app for a floating answer window during calls and interviews.",
+                text: "Use the Mac app for a floating answer window during calls and meetings.",
               },
               {
                 icon: Bot,
@@ -222,8 +222,8 @@ export default async function Home() {
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             {[
-              [FileText, "Upload context", "Resume, meeting topic, product notes, or client details."],
-              [MessageSquareText, "Choose the mode", "Normal talk, interview, client call, or screen question."],
+              [FileText, "Add context", "Meeting agenda, daily update, product notes, or client details."],
+              [MessageSquareText, "Choose the call", "Team meeting, daily standup, client call, or project KT."],
               [Headphones, "Listen quietly", "Kasa Cue follows the conversation without interrupting."],
               [WandSparkles, "Speak the answer", "Use the highlighted answer as your natural response."],
             ].map(([Icon, title, text], index) => (

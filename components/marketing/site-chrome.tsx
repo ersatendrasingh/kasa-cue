@@ -121,8 +121,8 @@ export function MarketingFooter() {
             Kasa Cue
           </Link>
           <p className="mt-4 max-w-sm text-sm leading-6 text-slate-600">
-            Private live communication support for interviews, normal calls,
-            client meetings, and English-first workplaces.
+            Live communication support for office meetings, client calls,
+            daily standups, project KT, and everyday workplace conversations.
           </p>
         </div>
         <FooterGroup title="Product" links={[["How it works", "/how-it-works"], ["Pricing", "/pricing"], ["Compare plans", "/compare-plans"]]} />

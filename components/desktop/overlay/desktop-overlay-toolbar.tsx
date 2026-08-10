@@ -4,8 +4,7 @@ import {
   ChevronUp,
   LogOut,
   MessageSquare,
-  Mic,
-  Monitor,
+  AudioLines,
   ScanLine,
   Sparkles,
 } from "lucide-react";
@@ -24,9 +23,7 @@ type DesktopOverlayToolbarProps = {
   onCollapse: () => void;
   onEnd: () => void;
   onModeChange: (mode: "answer" | "analyze" | "chat") => void;
-  onToggleListening: () => void;
   onToggleAutoAnswer: () => void;
-  onToggleSystemCapture: () => void;
 };
 
 export function DesktopOverlayToolbar({
@@ -41,9 +38,7 @@ export function DesktopOverlayToolbar({
   onCollapse,
   onEnd,
   onModeChange,
-  onToggleListening,
   onToggleAutoAnswer,
-  onToggleSystemCapture,
 }: DesktopOverlayToolbarProps) {
   return (
     <header className="desktop-drag flex h-10 items-center justify-between gap-2 rounded-2xl bg-slate-950/95 px-2 text-[11px] text-slate-100 shadow-2xl ring-1 ring-white/10 backdrop-blur">
@@ -52,16 +47,17 @@ export function DesktopOverlayToolbar({
           K
         </span>
         <span className="max-w-20 truncate whitespace-nowrap">Kasa Cue</span>
-        <StatusIcon
-          active={isListening}
-          icon={<Mic className="size-3.5" />}
-          onClick={onToggleListening}
-        />
-        <StatusIcon
-          active={isSystemCapturing}
-          icon={<Monitor className="size-3.5" />}
-          onClick={onToggleSystemCapture}
-        />
+        <span className="desktop-no-drag flex h-7 items-center gap-1.5 rounded-xl bg-slate-900 px-2 text-[10px] text-slate-300">
+          <AudioLines className="size-3.5" />
+          <span
+            className={`size-1.5 rounded-full ${
+              isListening && isSystemCapturing
+                ? "bg-emerald-400"
+                : "bg-amber-400"
+            }`}
+          />
+          Live audio
+        </span>
       </div>
 
       <div className="desktop-no-drag flex min-w-0 items-center justify-center gap-1">
@@ -148,30 +144,5 @@ export function DesktopOverlayToolbar({
         </Button>
       </div>
     </header>
-  );
-}
-
-function StatusIcon({
-  active = false,
-  icon,
-  onClick,
-}: {
-  active?: boolean;
-  icon: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className="desktop-no-drag relative grid size-7 place-items-center rounded-xl bg-slate-900 text-slate-300 transition hover:bg-slate-800 hover:text-white"
-      onClick={onClick}
-      type="button"
-    >
-      {icon}
-      <span
-        className={`absolute right-1 top-1 size-1.5 rounded-full ${
-          active ? "bg-emerald-400" : "bg-red-500"
-        }`}
-      />
-    </button>
   );
 }

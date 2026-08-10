@@ -14,33 +14,14 @@ const DOWNLOADS: Record<
   }
 > = {
   "mac-arm64": {
-    contentType: "application/zip",
-    fileName: "Kasa-Cue-mac-arm64.zip",
-    relativePaths: [
-      path.join("desktop-downloads", "Kasa-Cue-mac-arm64.zip"),
-      path.join("dist", "Kasa-Cue-mac-arm64.zip"),
-    ],
-  },
-  "mac-arm64-dmg": {
     contentType: "application/x-apple-diskimage",
     fileName: "Kasa-Cue-mac-arm64.dmg",
     relativePaths: [
       path.join("desktop-downloads", "Kasa-Cue-mac-arm64.dmg"),
-      path.join("desktop-downloads", "Kasa Cue-arm64.dmg"),
       path.join("dist", "Kasa-Cue-mac-arm64.dmg"),
-      path.join("dist", "Kasa Cue-arm64.dmg"),
-      path.join("dist", "mac-arm64", "Kasa Cue.app.zip"),
     ],
   },
   "mac-x64": {
-    contentType: "application/zip",
-    fileName: "Kasa-Cue-mac-x64.zip",
-    relativePaths: [
-      path.join("desktop-downloads", "Kasa-Cue-mac-x64.zip"),
-      path.join("dist", "Kasa-Cue-mac-x64.zip"),
-    ],
-  },
-  "mac-x64-dmg": {
     contentType: "application/x-apple-diskimage",
     fileName: "Kasa-Cue-mac-x64.dmg",
     relativePaths: [

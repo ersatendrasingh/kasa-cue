@@ -5,12 +5,16 @@ const {
   desktopCapturer,
   dialog,
   ipcMain,
+  net,
   screen,
   session,
   shell,
   systemPreferences,
 } = require("electron");
+const fs = require("node:fs");
 const path = require("node:path");
+const { Readable, Transform } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 
 const APP_URL =
   process.env.KASA_WEB_APP_URL ||
@@ -29,6 +33,14 @@ let isSetupClosingForSession = false;
 let isQuitting = false;
 let pendingDeepLinkUrl = null;
 let lastScreenPermissionPromptAt = 0;
+let downloadedUpdatePath = null;
+let updateState = {
+  available: false,
+  currentVersion: app.getVersion(),
+  downloaded: false,
+  downloading: false,
+  progress: 0,
+};
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 const SETUP_EXPANDED_SIZE = { height: 600, width: 560 };
@@ -93,6 +105,12 @@ function createSetupWindow() {
       setupWindow?.show();
     }
   });
+  setupWindow.webContents.on("did-finish-load", () => {
+    showSetupWindow();
+  });
+  setTimeout(() => {
+    showSetupWindow();
+  }, 1800);
   setupWindow.webContents.on("did-fail-load", (_event, _code, description) => {
     showSetupFallback(
       `Could not load Kasa Cue desktop page. ${description || "Start the web app and try again."}`
@@ -188,6 +206,31 @@ function createOverlayWindow({ sessionId }) {
   });
 }
 
+function showSetupWindow() {
+  if (isSessionActive || !setupWindow || setupWindow.isDestroyed()) {
+    return;
+  }
+
+  setupWindow.setBounds(setupExpandedBounds, false);
+  setupWindow.setFocusable(true);
+  setupWindow.setSkipTaskbar(true);
+  showAndFocusWindow(setupWindow);
+}
+
+function showAndFocusWindow(window) {
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  if (window.isMinimized()) {
+    window.restore();
+  }
+
+  window.show();
+  window.moveTop();
+  window.focus();
+}
+
 app.whenReady().then(() => {
   app.setName("Kasa Cue");
   app.setAsDefaultProtocolClient("kasa-cue");
@@ -197,6 +240,9 @@ app.whenReady().then(() => {
   }
   configureDesktopPermissions();
   createSetupWindow();
+  setTimeout(() => {
+    void checkForDesktopUpdate();
+  }, 3500);
   const launchDeepLink = findDeepLink(process.argv);
   if (launchDeepLink) {
     pendingDeepLinkUrl = launchDeepLink;
@@ -209,6 +255,11 @@ app.whenReady().then(() => {
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createSetupWindow();
+      return;
+    }
+
+    if (!isSessionActive) {
+      showSetupWindow();
     }
   });
 });
@@ -264,7 +315,10 @@ function configureDesktopPermissions() {
         }
 
         callback({
-          audio: process.platform === "win32" ? "loopback" : undefined,
+          audio:
+            process.platform === "win32" || process.platform === "darwin"
+              ? "loopback"
+              : undefined,
           video: sources[0],
         });
       }
@@ -305,6 +359,18 @@ ipcMain.handle("desktop:minimize-window", (event) => {
 });
 
 ipcMain.handle("desktop:get-platform", () => process.platform);
+ipcMain.handle("desktop:get-update-state", () => updateState);
+ipcMain.handle("desktop:check-for-update", () => checkForDesktopUpdate());
+ipcMain.handle("desktop:download-update", () => downloadDesktopUpdate());
+ipcMain.handle("desktop:install-update", async () => {
+  if (!downloadedUpdatePath) {
+    return { ...updateState, error: "The update has not finished downloading." };
+  }
+
+  const openError = await shell.openPath(downloadedUpdatePath);
+
+  return openError ? { ...updateState, error: openError } : updateState;
+});
 
 ipcMain.handle("desktop:open-login", async () => {
   await shell.openExternal(`${APP_URL}/api/desktop/auth/start`);
@@ -415,11 +481,10 @@ ipcMain.handle("desktop:expand-overlay", (event, payload = {}) => {
   window.setMinimumSize(56, 56);
   window.setBounds(
     payload.mode === "result"
-      ? overlayExpandedBounds ||
-          getCenteredBounds(OVERLAY_RESULT_SIZE.width, OVERLAY_RESULT_SIZE.height)
+      ? overlayExpandedBounds || getOverlayBounds(OVERLAY_RESULT_SIZE)
       : payload.mode === "chat"
-        ? getCenteredBounds(OVERLAY_CHAT_SIZE.width, OVERLAY_CHAT_SIZE.height)
-        : getCenteredBounds(OVERLAY_COMPACT_SIZE.width, OVERLAY_COMPACT_SIZE.height),
+        ? getOverlayBounds(OVERLAY_CHAT_SIZE)
+        : getOverlayBounds(OVERLAY_COMPACT_SIZE),
     true
   );
   window.setAlwaysOnTop(true, "floating");
@@ -441,9 +506,7 @@ ipcMain.handle("desktop:set-overlay-mode", (event, mode) => {
   window.setMinimumSize(56, 56);
 
   if (mode === "result") {
-    const resultBounds =
-      overlayExpandedBounds ||
-      getCenteredBounds(OVERLAY_RESULT_SIZE.width, OVERLAY_RESULT_SIZE.height);
+    const resultBounds = overlayExpandedBounds || getOverlayBounds(OVERLAY_RESULT_SIZE);
 
     overlayExpandedBounds = resultBounds;
     window.setBounds(resultBounds, true);
@@ -451,17 +514,11 @@ ipcMain.handle("desktop:set-overlay-mode", (event, mode) => {
   }
 
   if (mode === "chat") {
-    window.setBounds(
-      getCenteredBounds(OVERLAY_CHAT_SIZE.width, OVERLAY_CHAT_SIZE.height),
-      true
-    );
+    window.setBounds(getOverlayBounds(OVERLAY_CHAT_SIZE), true);
     return true;
   }
 
-  window.setBounds(
-    getCenteredBounds(OVERLAY_COMPACT_SIZE.width, OVERLAY_COMPACT_SIZE.height),
-    true
-  );
+  window.setBounds(getOverlayBounds(OVERLAY_COMPACT_SIZE), true);
   return true;
 });
 
@@ -641,10 +698,23 @@ ipcMain.handle("desktop:toggle-always-on-top", (event) => {
 
 function getCenteredBounds(width, height) {
   const display = screen.getPrimaryDisplay();
-  const x = Math.round(display.workArea.x + (display.workArea.width - width) / 2);
+  const safeWidth = Math.min(width, display.workArea.width - 32);
+  const x = Math.round(
+    display.workArea.x + (display.workArea.width - safeWidth) / 2
+  );
   const y = display.workArea.y + 16;
 
-  return { height, width, x, y };
+  return { height, width: safeWidth, x, y };
+}
+
+function getOverlayBounds(size) {
+  const display = screen.getPrimaryDisplay();
+  const width = Math.max(
+    size.width,
+    Math.round(Math.min(display.workArea.width - 32, display.workArea.width * 0.92))
+  );
+
+  return getCenteredBounds(width, size.height);
 }
 
 function handleDeepLink(url) {
@@ -685,6 +755,142 @@ function findDeepLink(values = []) {
   return values.find(
     (value) => typeof value === "string" && value.startsWith("kasa-cue://")
   );
+}
+
+async function checkForDesktopUpdate() {
+  if (!app.isPackaged && process.env.KASA_ENABLE_UPDATES !== "true") {
+    return updateState;
+  }
+
+  try {
+    const platform = getDesktopUpdatePlatform();
+    const response = await net.fetch(
+      `${APP_URL}/api/desktop/update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(app.getVersion())}`,
+      { cache: "no-store" }
+    );
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Could not check for updates.");
+    }
+
+    updateState = {
+      ...updateState,
+      ...data,
+      currentVersion: app.getVersion(),
+      downloaded: false,
+      downloading: false,
+      error: "",
+      progress: 0,
+    };
+    downloadedUpdatePath = null;
+    sendUpdateState();
+  } catch (error) {
+    updateState = {
+      ...updateState,
+      error:
+        error instanceof Error ? error.message : "Could not check for updates.",
+    };
+    sendUpdateState();
+  }
+
+  return updateState;
+}
+
+async function downloadDesktopUpdate() {
+  if (!updateState.available || !updateState.downloadUrl) {
+    return checkForDesktopUpdate();
+  }
+
+  if (updateState.downloading || updateState.downloaded) {
+    return updateState;
+  }
+
+  const fileName =
+    updateState.fileName ||
+    (process.platform === "win32"
+      ? "Kasa-Cue-win-x64.exe"
+      : `Kasa-Cue-mac-${process.arch}.dmg`);
+  const targetPath = path.join(app.getPath("temp"), fileName);
+
+  updateState = {
+    ...updateState,
+    downloaded: false,
+    downloading: true,
+    error: "",
+    progress: 0,
+  };
+  sendUpdateState();
+
+  try {
+    const response = await net.fetch(new URL(updateState.downloadUrl, APP_URL), {
+      cache: "no-store",
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Update download failed (${response.status}).`);
+    }
+
+    const totalBytes = Number(response.headers.get("content-length")) || 0;
+    let receivedBytes = 0;
+    const progressStream = new Transform({
+      transform(chunk, _encoding, callback) {
+        receivedBytes += chunk.length;
+        const progress = totalBytes
+          ? Math.min(99, Math.round((receivedBytes / totalBytes) * 100))
+          : updateState.progress;
+
+        if (progress !== updateState.progress) {
+          updateState = { ...updateState, progress };
+          sendUpdateState();
+        }
+
+        callback(null, chunk);
+      },
+    });
+
+    await pipeline(
+      Readable.fromWeb(response.body),
+      progressStream,
+      fs.createWriteStream(targetPath)
+    );
+
+    downloadedUpdatePath = targetPath;
+    updateState = {
+      ...updateState,
+      downloaded: true,
+      downloading: false,
+      progress: 100,
+    };
+    sendUpdateState();
+  } catch (error) {
+    downloadedUpdatePath = null;
+    updateState = {
+      ...updateState,
+      downloaded: false,
+      downloading: false,
+      error:
+        error instanceof Error ? error.message : "Could not download update.",
+      progress: 0,
+    };
+    sendUpdateState();
+  }
+
+  return updateState;
+}
+
+function getDesktopUpdatePlatform() {
+  if (process.platform === "win32") {
+    return "windows-x64";
+  }
+
+  return process.arch === "x64" ? "mac-x64" : "mac-arm64";
+}
+
+function sendUpdateState() {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("desktop:update-state", updateState);
+  }
 }
 
 function showSetupFallback(message) {

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DesktopUpdateBanner } from "@/components/desktop/desktop-update-banner";
 
 type DesktopWindowShellProps = {
   children: React.ReactNode;
@@ -57,9 +58,9 @@ export function DesktopWindowShell({ children }: DesktopWindowShellProps) {
   }
 
   return (
-    <main className="min-h-screen bg-transparent p-3 text-slate-950">
-      <section className="mx-auto w-full max-w-[520px] overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-2xl">
-        <header className="desktop-drag flex h-14 items-center justify-between border-b border-slate-100 px-4">
+    <main className="h-screen bg-transparent p-3 text-slate-950">
+      <section className="mx-auto flex h-full w-full max-w-[520px] flex-col overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-2xl">
+        <header className="desktop-drag flex h-14 shrink-0 items-center justify-between border-b border-slate-100 px-4">
           <div className="flex min-w-0 items-center gap-3">
             <span className="grid size-8 place-items-center rounded-xl bg-blue-600 text-lg font-black text-white">
               K
@@ -86,7 +87,8 @@ export function DesktopWindowShell({ children }: DesktopWindowShellProps) {
             </Button>
           </div>
         </header>
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <DesktopUpdateBanner />
       </section>
     </main>
   );

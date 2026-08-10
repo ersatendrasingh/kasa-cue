@@ -19,12 +19,12 @@ export default function HowItWorksPage() {
             {
               icon: FileText,
               title: "Upload context",
-              text: "Add resume, meeting notes, topic docs, or client background.",
+              text: "Add meeting notes, daily updates, project docs, or client background.",
             },
             {
               icon: MonitorUp,
               title: "Start a session",
-              text: "Choose normal talk, interview, or client call mode.",
+              text: "Choose team meeting, daily standup, client call, or project KT.",
             },
             {
               icon: Headphones,

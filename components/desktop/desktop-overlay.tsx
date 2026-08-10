@@ -18,8 +18,8 @@ type DesktopOverlayProps = {
 const AUDIO_DEVICE_STORAGE_KEY = "kasa-cue:desktop-audio-input-device-id";
 const SYSTEM_AUDIO_DEVICE_STORAGE_KEY =
   "kasa-cue:desktop-system-audio-input-device-id";
-const RECORDING_SEGMENT_MS = 5000;
-const AUTO_ANSWER_PAUSE_MS = 1400;
+const RECORDING_SEGMENT_MS = 2500;
+const AUTO_ANSWER_PAUSE_MS = 900;
 const MIN_TRANSCRIPT_WORDS = 2;
 
 type SpeechRecognitionEventLike = {
@@ -77,7 +77,7 @@ export function DesktopOverlay({
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const systemStreamRef = useRef<MediaStream | null>(null);
   const autoAnswerRef = useRef(false);
-  const didAutoStartMicrophoneRef = useRef(false);
+  const didAutoStartAudioRef = useRef(false);
   const isGeneratingRef = useRef(false);
   const sessionIdRef = useRef(initialSessionId);
   const transcriptRef = useRef("");
@@ -318,41 +318,6 @@ export function DesktopOverlay({
     }
   }
 
-  async function toggleMicrophone() {
-    if (isListening) {
-      stopLiveRecorder(
-        microphoneRecorderRef.current,
-        microphoneStreamRef.current,
-        microphoneSegmentTimerRef
-      );
-      microphoneRecorderRef.current = null;
-      microphoneStreamRef.current = null;
-      stopSpeechPreview(speechRecognitionRef.current);
-      speechRecognitionRef.current = null;
-      setLiveTranscriptPreview("");
-      setIsListening(false);
-
-      if (
-        isSystemUsingMicrophoneFallbackRef.current &&
-        !systemRecorderRef.current
-      ) {
-        isSystemUsingMicrophoneFallbackRef.current = false;
-        setIsSystemCapturing(false);
-      }
-      return;
-    }
-
-    if (
-      isSystemUsingMicrophoneFallbackRef.current &&
-      hasLiveAudioTracks(systemStreamRef.current)
-    ) {
-      setIsListening(true);
-      return;
-    }
-
-    await startMicrophoneCapture();
-  }
-
   async function toggleSystemCapture() {
     if (isSystemCapturing) {
       stopLiveRecorder(
@@ -462,7 +427,12 @@ export function DesktopOverlay({
       formData.append("source", source);
       formData.append("tone", initialTone);
       formData.append("transcribeOnly", "true");
-      formData.append("language", getTranscriptionLanguage(initialLanguage));
+      const transcriptionLanguage = getTranscriptionLanguage(initialLanguage);
+
+      if (transcriptionLanguage) {
+        formData.append("language", transcriptionLanguage);
+      }
+
       formData.append("outputLanguage", "english");
 
       pendingTranscriptionsRef.current += 1;
@@ -491,11 +461,14 @@ export function DesktopOverlay({
         return;
       }
 
-      const nextTranscript = [currentTranscript, heardText]
+      const speaker = source === "microphone" ? "user" : "other";
+      const labelledText = `${speaker === "user" ? "You" : "Other"}: ${heardText}`;
+      const nextTranscript = [currentTranscript, labelledText]
         .filter(Boolean)
         .join("\n");
       transcriptRef.current = nextTranscript;
       setTranscript(nextTranscript);
+      void saveUserTurn(heardText, speaker);
 
       if (autoAnswerRef.current) {
         if (autoAnswerTimerRef.current) {
@@ -537,13 +510,13 @@ export function DesktopOverlay({
   }
 
   useEffect(() => {
-    if (didAutoStartMicrophoneRef.current) {
+    if (didAutoStartAudioRef.current) {
       return;
     }
 
-    didAutoStartMicrophoneRef.current = true;
-    void startMicrophoneCapture();
-    // Microphone should auto-start once per overlay session, not on every render.
+    didAutoStartAudioRef.current = true;
+    void Promise.allSettled([startMicrophoneCapture(), toggleSystemCapture()]);
+    // Both sides should auto-start once per desktop session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -651,7 +624,10 @@ export function DesktopOverlay({
     setReply(nextReply);
   }
 
-  async function saveUserTurn(content: string) {
+  async function saveUserTurn(
+    content: string,
+    speaker: "other" | "user" = "other"
+  ) {
     if (!sessionIdRef.current || !content.trim()) {
       return;
     }
@@ -663,7 +639,7 @@ export function DesktopOverlay({
       },
       body: JSON.stringify({
         content,
-        speaker: "other",
+        speaker,
       }),
     });
   }
@@ -787,8 +763,6 @@ export function DesktopOverlay({
           onEnd={() => void endSession()}
           onModeChange={setActiveTool}
           onToggleAutoAnswer={() => setAutoAnswer((current) => !current)}
-          onToggleListening={() => void toggleMicrophone()}
-          onToggleSystemCapture={() => void toggleSystemCapture()}
         />
         <DesktopTranscriptBar
           isListening={isListening || isSystemCapturing}
@@ -934,55 +908,65 @@ function stopSpeechPreview(recognition: SpeechRecognitionLike | null) {
 }
 
 async function getSystemAudioStream(platform?: NodeJS.Platform) {
-  if (platform === "win32") {
-    const captureStream = await navigator.mediaDevices.getDisplayMedia({
-      audio: {
-        autoGainControl: false,
-        echoCancellation: false,
-        noiseSuppression: false,
-      },
-      video: {
-        frameRate: {
-          ideal: 1,
-          max: 1,
+  if (platform === "win32" || platform === "darwin") {
+    try {
+      const captureStream = await navigator.mediaDevices.getDisplayMedia({
+        audio: {
+          autoGainControl: false,
+          echoCancellation: false,
+          noiseSuppression: false,
         },
-        height: {
-          ideal: 2,
+        video: {
+          frameRate: {
+            ideal: 1,
+            max: 1,
+          },
+          height: {
+            ideal: 2,
+          },
+          width: {
+            ideal: 2,
+          },
         },
-        width: {
-          ideal: 2,
-        },
-      },
-    } as DisplayMediaStreamOptions);
-    const audioTracks = captureStream.getAudioTracks();
+      } as DisplayMediaStreamOptions);
+      const audioTracks = captureStream.getAudioTracks();
 
-    if (audioTracks.length === 0) {
+      if (audioTracks.length > 0) {
+        captureStream.getVideoTracks().forEach((track) => track.stop());
+        return {
+          captureStream,
+          isMicrophoneFallback: false,
+          stream: new MediaStream(audioTracks),
+        };
+      }
+
       stopStream(captureStream);
-      throw new Error(getSystemAudioHelpMessage(platform));
+      if (platform === "win32") {
+        throw new Error(getSystemAudioHelpMessage(platform));
+      }
+    } catch (error) {
+      if (platform === "win32") {
+        throw error;
+      }
+      // On older macOS versions, fall through to a selected loopback input.
     }
-
-    return {
-      captureStream,
-      isMicrophoneFallback: false,
-      stream: new MediaStream(audioTracks),
-    };
   }
 
   const selectedDeviceId =
     window.localStorage.getItem(SYSTEM_AUDIO_DEVICE_STORAGE_KEY) ??
     (await findLikelyLoopbackDeviceId());
 
-  const stream = selectedDeviceId
-    ? await navigator.mediaDevices.getUserMedia({
-        audio: getSystemAudioConstraints(selectedDeviceId),
-      })
-    : await getMicrophoneStream(
-        window.localStorage.getItem(AUDIO_DEVICE_STORAGE_KEY)
-      );
+  if (!selectedDeviceId) {
+    throw new Error(getSystemAudioHelpMessage(platform));
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: getSystemAudioConstraints(selectedDeviceId),
+  });
 
   return {
     captureStream: null,
-    isMicrophoneFallback: !selectedDeviceId,
+    isMicrophoneFallback: false,
     stream,
   };
 }
@@ -1076,7 +1060,7 @@ function getSystemAudioHelpMessage(platform?: NodeJS.Platform) {
   }
 
   if (platform === "darwin") {
-    return "macOS does not expose headphone/system output as a direct loopback stream to Electron. Use a loopback input such as BlackHole/Loopback as the selected microphone source, or use speaker output so the mic can hear it.";
+    return "macOS did not provide a live system-audio track. Allow Kasa Cue in Privacy & Security > Screen & System Audio Recording and restart it. On macOS 12 or older, use BlackHole/Loopback.";
   }
 
   return "System audio stream did not include audio. Use a loopback input device, or use speaker output so the mic can hear it.";
@@ -1166,10 +1150,13 @@ function buildTranscriptionPrompt(
     source === "system"
       ? "Audio source is system output from a meeting, browser, video, or headphones."
       : "Audio source is microphone input and may include room speech, speaker audio, or a phone call nearby.",
+    "Your job is to capture what the human speaker intended to say, not a brittle word-for-word guess from noisy audio.",
+    "If speech is broken, accented, fast, mixed Hindi-English, or slightly unclear, infer the most likely intended sentence from the surrounding conversation.",
     "Always return English words in Latin script only. Never use Urdu, Arabic, Hindi, Devanagari, or any non-Latin script.",
     "If the speaker uses Hindi, Urdu, or Hinglish, translate or transliterate it into natural English/Hinglish using Latin letters.",
-    "Transcribe the intended spoken words clearly. If a word is slightly unclear, infer the most likely phrase from the conversation context.",
+    "Prefer a clear, natural sentence that preserves the speaker's meaning over a literal fragment with misheard words.",
     "Keep names, companies, technologies, numbers, salary amounts, dates, and code terms accurate when audible.",
+    "Do not invent missing facts. If a specific name, number, or date is not audible, keep the rest of the sentence clear without making up that detail.",
     recentContext
       ? `Recent conversation context for continuity only: ${recentContext}`
       : "",
@@ -1186,7 +1173,7 @@ function getTranscriptionLanguage(language: string) {
     return "hi";
   }
 
-  return "en";
+  return "";
 }
 
 function toEnglishLatinText(value: string) {

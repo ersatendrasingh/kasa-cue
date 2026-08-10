@@ -130,7 +130,7 @@ export function SessionDetailsPanel({
             onChange={(value) => update("resumeDocumentId", value)}
           />
         </Field>
-        <Field label="Meeting / Reference Docs">
+        <Field label="Cue Notes / Reference Docs">
           <ReferencePicker
             documents={documents.references}
             selectedIds={draft.referenceDocumentIds}
@@ -148,7 +148,7 @@ export function SessionDetailsPanel({
               ) : (
                 <Upload className="size-3.5" />
               )}
-              Upload meeting brief
+              Upload cue notes
             </button>
             {draft.referenceDocumentIds.length ? (
               <span className="text-xs text-slate-400">
@@ -170,11 +170,11 @@ export function SessionDetailsPanel({
         </Field>
       </div>
 
-      <Field label="Custom Instructions (Optional)">
+      <Field label="Quick Instructions / Cue Text">
         <Textarea
           className="min-h-20 resize-none rounded-xl text-sm font-normal"
           maxLength={2000}
-          placeholder="Negotiation points, speaking style, or details this session should remember."
+          placeholder="Paste quick notes like yesterday's work, today's report points, questions to ask, tone, or exact things Kasa should remember."
           value={draft.instructions}
           onChange={(event) => update("instructions", event.target.value)}
         />

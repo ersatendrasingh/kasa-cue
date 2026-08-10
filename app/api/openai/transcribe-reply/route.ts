@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/desktop-auth";
+import { isLikelyTranscriptionArtifact } from "@/lib/transcript-safety";
 
 const OPENAI_API_URL = "https://api.openai.com/v1";
 const TRANSCRIPTION_MODEL =
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
     const prompt = String(formData.get("prompt") ?? "");
     const tone = String(formData.get("tone") ?? "adaptive-genuine");
     const instructions = String(formData.get("instructions") ?? "");
-    const language = String(formData.get("language") ?? "en");
+    const language = String(formData.get("language") ?? "");
     const outputLanguage = String(formData.get("outputLanguage") ?? "english");
     const transcribeOnly = String(formData.get("transcribeOnly") ?? "") === "true";
 
@@ -55,12 +56,23 @@ export async function POST(request: Request) {
     }
 
     const transcription = await transcribeAudio(audio, prompt, language);
+
+    if (isLikelyTranscriptionArtifact(transcription.text, prompt)) {
+      return Response.json(
+        { error: "No speech detected in this audio chunk." },
+        { status: 422 }
+      );
+    }
+
     const normalizedTranscript = await normalizeTranscriptLanguage(
       transcription.text,
       outputLanguage
     );
 
-    if (!normalizedTranscript) {
+    if (
+      !normalizedTranscript ||
+      isLikelyTranscriptionArtifact(normalizedTranscript, prompt)
+    ) {
       return Response.json(
         { error: "No speech detected in this audio chunk." },
         { status: 422 }
@@ -108,17 +120,12 @@ async function transcribeAudio(audio: File, prompt: string, language: string) {
   const body = new FormData();
   body.append("file", audio, audio.name || "audio.webm");
   body.append("model", TRANSCRIPTION_MODEL);
-  body.append("language", language || "en");
-  body.append(
-    "prompt",
-    [
-      prompt.trim(),
-      "Return English words in Latin script only. Never return Urdu, Arabic, Hindi, Devanagari, or any non-Latin script.",
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .slice(0, 1800)
-  );
+  if (language) {
+    body.append("language", language);
+  }
+  if (prompt.trim()) {
+    body.append("prompt", prompt.trim().slice(-800));
+  }
 
   const response = await fetch(`${OPENAI_API_URL}/audio/transcriptions`, {
     method: "POST",
@@ -210,8 +217,21 @@ async function generateReply({
       input: [
         {
           role: "system",
-          content:
-            "You are Kasa Cue, a private communication copilot. Generate a speakable English reply. Do not mention that you are an AI. Keep it genuinely useful for the user's live conversation, with enough detail for the situation.",
+          content: [
+            "You are Kasa Cue, a private communication copilot.",
+            "Generate a speakable reply the user can use immediately.",
+            "Do not mention that you are an AI.",
+            "Understand the user's real need from the speech: immediate reply, meeting/report preparation, English polishing, clarification questions, action plan, summary, objection handling, or next-step alignment.",
+            "If the user gives a rough story, convert it into usable output: what happened, what matters now, what the user should say, what questions they should ask, and what next action should be proposed.",
+            "For meeting, report, standup, manager call, client call, or colleague discussion prep, give a practical structure with an opening line, key points, questions to ask, and a short version to say directly.",
+            "If selected reference documents, daily cue notes, status notes, or talking points are available in the instructions/context, treat them as the source of truth for the user's facts, priorities, and intended position.",
+            "When notes include yesterday, today, blockers, questions, people to meet, or next steps, preserve that structure when the user asks for preparation.",
+            "Documents and quick notes may be written in Hindi or Hinglish. Use them for meaning only; write the final suggested reply in clean, simple, speakable English unless another output language is explicitly requested.",
+            "For simple live replies, answer the exact latest speech act in first person as the user.",
+            "If the input is Hinglish or broken spoken English, understand the intent and reply in clean, natural, simple English unless another language is requested.",
+            "Do not hardcode or imitate any single example. Adapt to the actual topic, people, dates, blockers, deliverables, and urgency.",
+            "Preserve concrete details exactly. If important context is missing, include focused questions instead of inventing details.",
+          ].join(" "),
         },
         {
           role: "user",

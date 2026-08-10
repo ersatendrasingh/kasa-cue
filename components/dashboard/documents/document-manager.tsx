@@ -23,7 +23,7 @@ type DocumentTab = "resume" | "reference";
 
 const tabLabels: Record<DocumentTab, string> = {
   resume: "Resumes",
-  reference: "Meeting briefs",
+  reference: "Cue notes",
 };
 
 export function DocumentManager({ initialDocuments }: DocumentManagerProps) {
@@ -127,8 +127,8 @@ export function DocumentManager({ initialDocuments }: DocumentManagerProps) {
         <div>
           <h2 className="text-2xl font-semibold">Resume / Documents</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            Upload resumes, meeting briefs, agendas, notes, and reference files
-            so live sessions can answer with the right context.
+            Upload resumes, daily cue notes, meeting briefs, agendas, and
+            talking points so live sessions can answer with consistent context.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -141,7 +141,7 @@ export function DocumentManager({ initialDocuments }: DocumentManagerProps) {
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="size-4" />
-            Upload {activeTab === "resume" ? "resume" : "meeting brief"}
+            Upload {activeTab === "resume" ? "resume" : "cue notes"}
           </Button>
         </div>
       </div>
@@ -212,7 +212,7 @@ export function DocumentManager({ initialDocuments }: DocumentManagerProps) {
         emptyText={
           activeTab === "resume"
             ? "No resumes uploaded yet."
-            : "No meeting briefs or reference documents uploaded yet."
+            : "No cue notes or reference documents uploaded yet."
         }
         onDelete={setDeleteTarget}
       />

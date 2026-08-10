@@ -1,6 +1,12 @@
 "use client";
 
-import { Check, Clipboard, Sparkles } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clipboard,
+  Sparkles,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,14 +47,15 @@ export function AnswerPanel({
   const ActiveModeIcon = activeMode.icon;
 
   return (
-    <div className="flex min-h-[420px] flex-1 flex-col rounded-md border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-        <div>
+    <div className="flex min-h-[320px] flex-1 flex-col rounded-xl border border-slate-200 bg-white shadow-sm sm:min-h-[420px] sm:rounded-md">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5 sm:px-5 sm:py-4">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 text-base font-semibold">
-            <Sparkles className="size-5 text-amber-500" />
-            AI answer
+            <Sparkles className="size-4 text-amber-500 sm:size-5" />
+            <span className="sm:hidden">Answer</span>
+            <span className="hidden sm:inline">AI answer</span>
           </div>
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-2 hidden flex-wrap gap-2 sm:flex">
             <Badge variant="outline" className="gap-1.5">
               <ActiveModeIcon className="size-3.5" />
               {activeMode.label}
@@ -57,36 +64,44 @@ export function AnswerPanel({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           {isGenerating ? (
-            <Badge className="gap-2 border-amber-200 bg-amber-50 text-amber-700" variant="outline">
+            <Badge
+              className="gap-2 border-amber-200 bg-amber-50 text-amber-700"
+              variant="outline"
+            >
               <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
-              Thinking
+              <span className="hidden sm:inline">Thinking</span>
             </Badge>
           ) : null}
           <Button
-            className="h-8 px-3 text-xs"
+            aria-label="Previous answer"
+            className="size-8 p-0 sm:w-auto sm:px-3"
             disabled={answerIndex <= 0}
             onClick={onPrevious}
             type="button"
             variant="outline"
           >
-            Previous
+            <ChevronLeft className="size-4 sm:hidden" />
+            <span className="hidden text-xs sm:inline">Previous</span>
           </Button>
-          <span className="min-w-14 text-center text-xs text-slate-500">
+          <span className="min-w-9 text-center text-[11px] text-slate-500 sm:min-w-14 sm:text-xs">
             {answersLength ? `${answerIndex + 1}/${answersLength}` : "0/0"}
           </span>
           <Button
-            className="h-8 px-3 text-xs"
+            aria-label="Next answer"
+            className="size-8 p-0 sm:w-auto sm:px-3"
             disabled={answerIndex < 0 || answerIndex >= answersLength - 1}
             onClick={onNext}
             type="button"
             variant="outline"
           >
-            Next
+            <ChevronRight className="size-4 sm:hidden" />
+            <span className="hidden text-xs sm:inline">Next</span>
           </Button>
           <Button
-            className="h-8 gap-2 px-3 text-xs"
+            aria-label={copied ? "Answer copied" : "Copy answer"}
+            className="size-8 gap-2 p-0 sm:w-auto sm:px-3"
             onClick={onCopy}
             type="button"
             variant="outline"
@@ -96,12 +111,14 @@ export function AnswerPanel({
             ) : (
               <Clipboard className="size-3.5" />
             )}
-            {copied ? "Copied" : "Copy"}
+            <span className="hidden text-xs sm:inline">
+              {copied ? "Copied" : "Copy"}
+            </span>
           </Button>
         </div>
       </div>
 
-      <div className="flex-1 px-6 py-5">
+      <div className="flex-1 px-4 py-4 sm:px-6 sm:py-5">
         <div className="space-y-4 text-base font-normal leading-7 text-slate-900">
           <FormattedAnswer value={visibleReply} />
         </div>

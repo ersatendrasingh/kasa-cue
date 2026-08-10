@@ -57,7 +57,7 @@ export function DashboardSidebar({
           active={activeItem === "documents"}
           href="/dashboard/resumes"
           icon={FileText}
-          label="Resume / Documents"
+          label="Meeting documents"
         />
         <SidebarItem
           active={activeItem === "instructions"}

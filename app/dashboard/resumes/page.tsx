@@ -35,8 +35,8 @@ export default async function ResumeDocumentsPage() {
   return (
     <DashboardShell activeItem="documents" user={session.user}>
       <div className="border-b border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950 sm:px-6">
-        <span className="font-semibold">Documents:</span> Manage resumes and
-        reference files used by Kasa Cue during live sessions.
+        <span className="font-semibold">Documents:</span> Manage resumes, cue
+        notes, and reference files used by Kasa Cue during live sessions.
       </div>
       <div className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
         <DocumentManager
