@@ -54,6 +54,17 @@ struct KasaRootView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: browser.isLoading)
         .animation(.easeInOut(duration: 0.2), value: connectivity.isConnected)
+        .alert(
+            "Allow microphone access",
+            isPresented: $browser.isMicrophonePermissionBlocked
+        ) {
+            Button("Open Settings") {
+                browser.openAppSettings()
+            }
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text("Kasa needs microphone access to listen and create the live transcript.")
+        }
     }
 }
 

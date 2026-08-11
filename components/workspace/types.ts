@@ -69,6 +69,7 @@ export type KasaSpeechRecognitionEvent = {
 export type SpeechRecognitionConstructor = new () => KasaSpeechRecognition;
 
 export type SpeechWindow = Window & {
+  __KASA_NATIVE_IOS__?: boolean;
   SpeechRecognition?: SpeechRecognitionConstructor;
   webkitSpeechRecognition?: SpeechRecognitionConstructor;
 };

@@ -64,6 +64,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const [durationLabel, setDurationLabel] = useState("0:00");
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
+  const [isNativeIOS, setIsNativeIOS] = useState(false);
   const [model, setModel] = useState(activeSession.model);
   const [copied, setCopied] = useState(false);
   const [answers, setAnswers] = useState<string[]>([]);
@@ -87,6 +88,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const audioChunksRef = useRef<Blob[]>([]);
   const discardRecordingRef = useRef(false);
   const continuousRecordingRef = useRef(false);
+  const isStartingAudioRef = useRef(false);
   const recordingSegmentTimerRef = useRef<number | null>(null);
   const audioTranscriptionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const awaitingNewUtteranceRef = useRef(true);
@@ -118,6 +120,14 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       modeOptions[0],
     [activeSession.mode]
   );
+
+  useEffect(() => {
+    const nativeDetectionTimer = window.setTimeout(() => {
+      setIsNativeIOS(Boolean((window as SpeechWindow).__KASA_NATIVE_IOS__));
+    }, 0);
+
+    return () => window.clearTimeout(nativeDetectionTimer);
+  }, []);
 
   useEffect(() => {
     const startedAt = new Date(activeSession.startedAt).getTime();
@@ -880,11 +890,26 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   }
 
   async function startAudioRecording() {
+    if (
+      mediaStreamRef.current
+        ?.getAudioTracks()
+        .some((track) => track.readyState === "live")
+    ) {
+      setIsListening(true);
+      setListenStatus("Listening");
+      setError("");
+      setWarning("");
+      return;
+    }
+
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       setListenStatus("Type mode");
       setWarning("Audio recording is not supported here. You can type or paste the meeting line below.");
       return;
     }
+
+    if (isStartingAudioRef.current) return;
+    isStartingAudioRef.current = true;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -904,9 +929,13 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       setListenStatus("Mic blocked");
       setError(
         caughtError instanceof Error && caughtError.name === "NotAllowedError"
-          ? "Microphone access is blocked. Allow microphone permission in your browser settings and try again."
+          ? Boolean((window as SpeechWindow).__KASA_NATIVE_IOS__)
+            ? "Microphone access is blocked. Open iPhone Settings → Kasa and enable Microphone, then return and tap the mic."
+            : "Microphone access is blocked. Allow microphone permission in your browser settings and try again."
           : "The microphone could not start. Check that another app is not using it."
       );
+    } finally {
+      isStartingAudioRef.current = false;
     }
   }
 
@@ -1114,6 +1143,11 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   async function startListening(allowRecorderFallback = false) {
     setError("");
 
+    if (Boolean((window as SpeechWindow).__KASA_NATIVE_IOS__)) {
+      await startAudioRecording();
+      return;
+    }
+
     const SpeechRecognition =
       (window as SpeechWindow).SpeechRecognition ??
       (window as SpeechWindow).webkitSpeechRecognition;
@@ -1255,11 +1289,23 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   }
 
   useEffect(() => {
+    function handleNativeMicrophoneGranted() {
+      void startAudioRecording();
+    }
+
+    window.addEventListener(
+      "kasa:microphone-granted",
+      handleNativeMicrophoneGranted
+    );
     const startTimer = window.setTimeout(() => {
       void startListening(true);
     }, 0);
 
     return () => {
+      window.removeEventListener(
+        "kasa:microphone-granted",
+        handleNativeMicrophoneGranted
+      );
       window.clearTimeout(startTimer);
       shouldKeepListeningRef.current = false;
       recognitionRef.current?.stop();
@@ -1352,13 +1398,20 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           isGenerating={isGenerating}
           isEnding={isEnding}
           isListening={isListening || isMeetingAudioCapturing}
+          listeningActionLabel={
+            isNativeIOS ? "Start microphone" : "Connect meeting audio"
+          }
           listenStatus={
             isMeetingAudioCapturing ? "Mic + meeting audio" : listenStatus
           }
           onAnswer={() => void generateReply()}
           onAutoAnswerChange={setAutoAnswer}
           onEnd={() => void endSession()}
-          onListeningClick={() => void startMeetingAudioCapture()}
+          onListeningClick={() =>
+            void (isNativeIOS
+              ? startAudioRecording()
+              : startMeetingAudioCapture())
+          }
         />
 
         {isEnding ? (

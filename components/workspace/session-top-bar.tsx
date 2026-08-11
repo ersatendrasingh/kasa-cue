@@ -21,6 +21,7 @@ type SessionTopBarProps = {
   isGenerating: boolean;
   isEnding: boolean;
   isListening: boolean;
+  listeningActionLabel: string;
   listenStatus: string;
   onAnswer: () => void;
   onAutoAnswerChange: (enabled: boolean) => void;
@@ -40,6 +41,7 @@ export function SessionTopBar({
   isGenerating,
   isEnding,
   isListening,
+  listeningActionLabel,
   listenStatus,
   onAnswer,
   onAutoAnswerChange,
@@ -59,7 +61,7 @@ export function SessionTopBar({
             width={40}
           />
           <button
-            aria-label={`${isListening ? "Listening is ready" : listenStatus}. Connect meeting audio`}
+            aria-label={`${isListening ? "Listening is ready" : listenStatus}. ${listeningActionLabel}`}
             aria-live="polite"
             className={`flex size-10 shrink-0 items-center justify-center rounded-full border text-sm font-semibold sm:h-10 sm:w-auto sm:justify-start sm:gap-2 sm:rounded-full sm:px-3 ${
               isListening
@@ -68,7 +70,7 @@ export function SessionTopBar({
             }`}
             onClick={onListeningClick}
             role="status"
-            title={`${listenStatus} · Connect meeting audio`}
+            title={`${listenStatus} · ${listeningActionLabel}`}
             type="button"
           >
             <Mic

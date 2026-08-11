@@ -1,3 +1,4 @@
+import AVFAudio
 import Combine
 import SwiftUI
 import UIKit
@@ -10,6 +11,7 @@ final class KasaBrowserModel: NSObject, ObservableObject {
     @Published private(set) var estimatedProgress = 0.0
     @Published private(set) var canGoBack = false
     @Published var lastError: String?
+    @Published var isMicrophonePermissionBlocked = false
 
     let webView: WKWebView
 
@@ -80,6 +82,33 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         load(path: "/login")
     }
 
+    func openAppSettings() {
+        guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(settingsURL)
+    }
+
+    func requestMicrophoneAccessIfNeeded() {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            configureAudioSession()
+            isMicrophonePermissionBlocked = false
+        case .denied:
+            isMicrophonePermissionBlocked = true
+        case .undetermined:
+            AVAudioApplication.requestRecordPermission { [weak self] granted in
+                Task { @MainActor in
+                    self?.isMicrophonePermissionBlocked = !granted
+                    if granted {
+                        self?.configureAudioSession()
+                        self?.notifyWebViewMicrophoneGranted()
+                    }
+                }
+            }
+        @unknown default:
+            isMicrophonePermissionBlocked = true
+        }
+    }
+
     var shouldShowNativeNavigation: Bool {
         guard let path = currentURL?.path else { return false }
         return path.hasPrefix("/dashboard")
@@ -110,6 +139,22 @@ final class KasaBrowserModel: NSObject, ObservableObject {
                 }
             },
         ]
+    }
+
+    private func configureAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(
+            .playAndRecord,
+            mode: .spokenAudio,
+            options: [.allowBluetoothHFP]
+        )
+        try? session.setActive(true)
+    }
+
+    private func notifyWebViewMicrophoneGranted() {
+        webView.evaluateJavaScript(
+            "window.dispatchEvent(new Event('kasa:microphone-granted'));"
+        )
     }
 
     private static let nativeEnvironmentScript = """
@@ -154,6 +199,9 @@ extension KasaBrowserModel: WKNavigationDelegate {
     ) {
         isLoading = false
         currentURL = webView.url
+        if webView.url?.path.hasPrefix("/workspace") == true {
+            requestMicrophoneAccessIfNeeded()
+        }
     }
 
     func webView(
