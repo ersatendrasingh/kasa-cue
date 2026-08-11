@@ -152,9 +152,9 @@ export function StartSessionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-0 sm:px-4 sm:py-6">
-      <div className="flex max-h-[100dvh] w-full max-w-3xl flex-col overflow-hidden rounded-none border border-slate-200 bg-white shadow-2xl sm:max-h-[92vh] sm:rounded-lg">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+    <div className="kasa-session-modal fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 sm:inset-0 sm:items-center sm:px-4 sm:py-6">
+      <div className="flex h-full max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-none border border-slate-200 bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-lg">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3.5 sm:px-6 sm:py-4">
           <div>
             <h2 className="text-xl font-semibold">Start session</h2>
             <p className="text-sm text-slate-500">
@@ -171,8 +171,8 @@ export function StartSessionModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="space-y-4 p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="space-y-4 p-4 sm:p-5">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-1">
               <div className="grid gap-1 sm:grid-cols-2">
               {sessionModes.map((item) => {
@@ -337,12 +337,12 @@ export function StartSessionModal({
         </div>
 
         {error ? (
-          <p className="mx-6 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+          <p className="mx-4 shrink-0 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 sm:mx-6">
             {error}
           </p>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-3 border-t border-slate-200 px-4 py-4 sm:flex sm:justify-end sm:px-6">
+        <div className="grid shrink-0 grid-cols-2 gap-3 border-t border-slate-200 bg-white px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-10px_30px_rgba(15,23,42,0.06)] sm:flex sm:justify-end sm:px-6 sm:py-4 sm:shadow-none">
           <Button disabled={isStarting} variant="outline" onClick={onClose}>
             Cancel
           </Button>

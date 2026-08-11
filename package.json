@@ -11,6 +11,8 @@
     "desktop:pack": "bash scripts/pack-desktop-mac.sh",
     "desktop:pack:intel": "KASA_DESKTOP_ARCH=x64 bash scripts/pack-desktop-mac.sh",
     "desktop:pack:windows": "electron-builder --projectDir electron --config ../electron-builder.desktop.json --win nsis --x64",
+    "ios:open": "open mobile/ios/KasaMobile.xcodeproj",
+    "ios:build": "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project mobile/ios/KasaMobile.xcodeproj -scheme KasaMobile -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath mobile/ios/DerivedData CODE_SIGNING_ALLOWED=NO build",
     "dev": "next dev",
     "build": "next build",
     "vercel-build": "prisma generate && prisma migrate deploy && next build",

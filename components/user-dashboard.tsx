@@ -14,10 +14,11 @@ import { Button } from "@/components/ui/button";
 
 export default function UserDashboard({
   documents,
+  openStartSession = false,
   sessions,
   user,
-}: DashboardProps) {
-  const [isStartModalOpen, setIsStartModalOpen] = useState(false);
+}: DashboardProps & { openStartSession?: boolean }) {
+  const [isStartModalOpen, setIsStartModalOpen] = useState(openStartSession);
 
   return (
     <DashboardShell user={user} onStartSetup={() => setIsStartModalOpen(true)}>

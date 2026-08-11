@@ -3,7 +3,10 @@ import UserDashboard from "@/components/user-dashboard";
 import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: PageProps<"/dashboard">) {
+  const query = await searchParams;
   const session = await auth();
 
   if (!session?.user) {
@@ -67,6 +70,7 @@ export default async function DashboardPage() {
         startedAt: item.startedAt.toISOString(),
         turnsCount: item._count.turns,
       }))}
+      openStartSession={query.startSession === "1"}
       user={session.user}
     />
   );

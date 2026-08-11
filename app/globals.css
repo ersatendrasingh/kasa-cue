@@ -9,6 +9,24 @@
 
 @custom-variant dark (&:is(.dark *));
 
+:root {
+  --kasa-native-navigation-offset: 0px;
+}
+
+html[data-kasa-native="ios"] {
+  --kasa-native-navigation-offset: 94px;
+}
+
+.kasa-session-modal {
+  bottom: var(--kasa-native-navigation-offset);
+}
+
+@media (min-width: 640px) {
+  .kasa-session-modal {
+    bottom: 0;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
