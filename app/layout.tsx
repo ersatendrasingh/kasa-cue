@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Poppins } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { RouteTransitionOverlay } from "@/components/ui/route-transition-overlay";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -37,6 +38,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <TooltipProvider delayDuration={150}>{children}</TooltipProvider>
+        <RouteTransitionOverlay />
       </body>
     </html>
   );

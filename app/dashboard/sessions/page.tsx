@@ -24,6 +24,7 @@ export default async function SessionsPage() {
     orderBy: {
       startedAt: "desc",
     },
+    take: 50,
     select: {
       id: true,
       endedAt: true,
@@ -150,6 +151,7 @@ function formatMode(mode: string) {
 function formatDateTime(value: Date) {
   return new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
+    timeZone: "Asia/Kolkata",
     timeStyle: "short",
   }).format(value);
 }
