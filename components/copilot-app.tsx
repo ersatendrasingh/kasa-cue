@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { LoadingOverlay } from "@/components/ui/loading-overlay";
 
 import { AnswerPanel } from "@/components/workspace/answer-panel";
 import {
@@ -57,6 +58,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isMeetingAudioCapturing, setIsMeetingAudioCapturing] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
   const [autoAnswer, setAutoAnswer] = useState(false);
   const [listenStatus, setListenStatus] = useState("Start meeting audio");
   const [durationLabel, setDurationLabel] = useState("0:00");
@@ -77,9 +79,11 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const meetingAudioCaptureStreamRef = useRef<MediaStream | null>(null);
-  const meetingAudioRecorderRef = useRef<MediaRecorder | null>(null);
-  const meetingAudioSegmentTimerRef = useRef<number | null>(null);
+  const meetingAudioRecordersRef = useRef(new Set<MediaRecorder>());
+  const meetingAudioTimersRef = useRef(new Set<number>());
+  const meetingAudioActiveRef = useRef(false);
   const meetingAudioQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastMeetingAudioChunkTextRef = useRef("");
   const audioChunksRef = useRef<Blob[]>([]);
   const discardRecordingRef = useRef(false);
   const continuousRecordingRef = useRef(false);
@@ -679,12 +683,17 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     }
   }
 
-  async function transcribeRecordedAudio(audio: Blob) {
+  async function transcribeRecordedAudio(
+    audio: Blob,
+    source: "meeting" | "microphone" = "microphone"
+  ) {
+    const activeListenStatus =
+      source === "meeting" ? "Mic + meeting audio" : "Listening";
     setWarning("");
 
     try {
       if (!(await hasAudibleSpeech(audio))) {
-        setListenStatus("Listening");
+        setListenStatus(activeListenStatus);
         return;
       }
 
@@ -731,7 +740,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       if (response.status === 422) {
         recordingVisibleTextRef.current = "";
         recordingLastSpeechAtRef.current = 0;
-        setListenStatus("Listening");
+        setListenStatus(activeListenStatus);
         return;
       }
 
@@ -739,14 +748,30 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         throw new Error(data.error ?? "No clear speech was found in this recording.");
       }
 
-      const cleanText = data.transcript.trim();
+      const rawCleanText = data.transcript.trim();
+      const cleanText =
+        source === "meeting"
+          ? removeOverlappingAudioPrefix(
+              lastMeetingAudioChunkTextRef.current,
+              rawCleanText
+            )
+          : rawCleanText;
+
+      if (source === "meeting") {
+        lastMeetingAudioChunkTextRef.current = rawCleanText;
+      }
+
+      if (!cleanText) {
+        setListenStatus(activeListenStatus);
+        return;
+      }
       const spokenAt = Date.now();
       recentAudioSegmentsRef.current = recentAudioSegmentsRef.current.filter(
         (segment) => spokenAt - segment.time < 30000
       );
 
       if (isLikelyTranscriptionArtifact(cleanText)) {
-        setListenStatus("Listening");
+        setListenStatus(activeListenStatus);
         return;
       }
 
@@ -763,7 +788,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           cleanText,
           repeatedTranscriptLine ?? repeatedAudioLine ?? cleanText
         );
-        setListenStatus("Listening");
+        setListenStatus(activeListenStatus);
         return;
       }
 
@@ -790,7 +815,9 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       setLiveTranscript(recordingVisibleTextRef.current);
       const bufferedTurn = saveSessionTurn("other", cleanText);
       setListenStatus(
-        continuousRecordingRef.current
+        source === "meeting"
+          ? "Mic + meeting audio"
+          : continuousRecordingRef.current
           ? "Listening"
           : "Ready to record"
       );
@@ -845,7 +872,9 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           ? caughtError.message
           : "The recording could not be transcribed."
       );
-      setListenStatus("Try recording again");
+      setListenStatus(
+        source === "meeting" ? "Mic + meeting audio" : "Try recording again"
+      );
     } finally {
     }
   }
@@ -917,6 +946,8 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       }
 
       meetingAudioCaptureStreamRef.current = captureStream;
+      meetingAudioActiveRef.current = true;
+      lastMeetingAudioChunkTextRef.current = "";
       captureStream.getVideoTracks().forEach((track) => track.stop());
       const audioStream = new MediaStream(audioTracks);
       const audioTrack = audioTracks[0];
@@ -934,6 +965,12 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     } catch (caughtError) {
       const errorName = caughtError instanceof Error ? caughtError.name : "";
 
+      meetingAudioActiveRef.current = false;
+      meetingAudioCaptureStreamRef.current
+        ?.getTracks()
+        .forEach((track) => track.stop());
+      meetingAudioCaptureStreamRef.current = null;
+
       if (errorName === "NotAllowedError") {
         setWarning(
           "Meeting audio was not connected. Tap the listening icon again and allow the meeting tab/window with Share audio enabled."
@@ -950,6 +987,13 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   }
 
   function beginMeetingAudioRecording(stream: MediaStream) {
+    if (
+      !meetingAudioActiveRef.current ||
+      !stream.getAudioTracks().some((track) => track.readyState === "live")
+    ) {
+      return;
+    }
+
     const preferredType = [
       "audio/webm;codecs=opus",
       "audio/webm",
@@ -962,7 +1006,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     );
     const chunks: Blob[] = [];
 
-    meetingAudioRecorderRef.current = recorder;
+    meetingAudioRecordersRef.current.add(recorder);
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data);
     };
@@ -970,37 +1014,46 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       const audio = new Blob(chunks, {
         type: recorder.mimeType || "audio/webm",
       });
-      meetingAudioRecorderRef.current = null;
+      meetingAudioRecordersRef.current.delete(recorder);
 
       if (audio.size > 1000) {
         meetingAudioQueueRef.current = meetingAudioQueueRef.current
           .catch(() => undefined)
-          .then(() => transcribeRecordedAudio(audio));
-      }
-
-      if (stream.getAudioTracks().some((track) => track.readyState === "live")) {
-        beginMeetingAudioRecording(stream);
+          .then(() => transcribeRecordedAudio(audio, "meeting"));
       }
     };
     recorder.start();
-    meetingAudioSegmentTimerRef.current = window.setTimeout(() => {
+
+    let nextSegmentTimer = 0;
+    nextSegmentTimer = window.setTimeout(() => {
+      meetingAudioTimersRef.current.delete(nextSegmentTimer);
+      beginMeetingAudioRecording(stream);
+    }, 1500);
+    meetingAudioTimersRef.current.add(nextSegmentTimer);
+
+    let stopSegmentTimer = 0;
+    stopSegmentTimer = window.setTimeout(() => {
+      meetingAudioTimersRef.current.delete(stopSegmentTimer);
       if (recorder.state === "recording") recorder.stop();
-    }, 1800);
+    }, 2200);
+    meetingAudioTimersRef.current.add(stopSegmentTimer);
   }
 
   function stopMeetingAudioCapture() {
-    if (meetingAudioSegmentTimerRef.current) {
-      window.clearTimeout(meetingAudioSegmentTimerRef.current);
-      meetingAudioSegmentTimerRef.current = null;
-    }
-    if (meetingAudioRecorderRef.current?.state === "recording") {
-      meetingAudioRecorderRef.current.stop();
-    }
+    meetingAudioActiveRef.current = false;
+    meetingAudioTimersRef.current.forEach((timer) =>
+      window.clearTimeout(timer)
+    );
+    meetingAudioTimersRef.current.clear();
+    meetingAudioRecordersRef.current.forEach((recorder) => {
+      if (recorder.state === "recording") recorder.stop();
+    });
+    meetingAudioRecordersRef.current.clear();
     meetingAudioCaptureStreamRef.current
       ?.getTracks()
       .forEach((track) => track.stop());
-    meetingAudioRecorderRef.current = null;
     meetingAudioCaptureStreamRef.current = null;
+    lastMeetingAudioChunkTextRef.current = "";
     setIsMeetingAudioCapturing(false);
     setListenStatus(isListening ? "Listening" : "Start meeting audio");
   }
@@ -1255,6 +1308,8 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   }, [activeSession.id]);
 
   async function endSession() {
+    if (isEnding) return;
+    setIsEnding(true);
     shouldKeepListeningRef.current = false;
     continuousRecordingRef.current = false;
     stopMeetingAudioCapture();
@@ -1295,6 +1350,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           canAnswer={Boolean(getRecentTranscript(transcript))}
           durationLabel={durationLabel}
           isGenerating={isGenerating}
+          isEnding={isEnding}
           isListening={isListening || isMeetingAudioCapturing}
           listenStatus={
             isMeetingAudioCapturing ? "Mic + meeting audio" : listenStatus
@@ -1304,6 +1360,13 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           onEnd={() => void endSession()}
           onListeningClick={() => void startMeetingAudioCapture()}
         />
+
+        {isEnding ? (
+          <LoadingOverlay
+            description="Saving the conversation and meeting context."
+            label="Ending your session"
+          />
+        ) : null}
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-[calc(6.5rem+env(safe-area-inset-bottom))] sm:p-4">
           <div className="flex min-h-full w-full flex-col gap-2.5 sm:gap-4">
@@ -1474,6 +1537,36 @@ function compactMemoryLine(value: string, maxLength: number) {
   return stripTranscriptSpeakerLabel(value)
     .replace(/\s+/g, " ")
     .slice(0, maxLength);
+}
+
+function removeOverlappingAudioPrefix(previousChunk: string, nextChunk: string) {
+  if (!previousChunk.trim() || !nextChunk.trim()) return nextChunk.trim();
+
+  const previousWords = previousChunk.trim().split(/\s+/);
+  const nextWords = nextChunk.trim().split(/\s+/);
+  const maxOverlap = Math.min(16, previousWords.length, nextWords.length);
+
+  for (let size = maxOverlap; size >= 1; size -= 1) {
+    const previousTail = previousWords
+      .slice(-size)
+      .map(normalizeAudioWord);
+    const nextHead = nextWords.slice(0, size).map(normalizeAudioWord);
+    const isUsefulSingleWord =
+      size > 1 || (previousTail[0]?.length ?? 0) >= 5;
+
+    if (
+      isUsefulSingleWord &&
+      previousTail.every((word, index) => word && word === nextHead[index])
+    ) {
+      return nextWords.slice(size).join(" ").trim();
+    }
+  }
+
+  return nextChunk.trim();
+}
+
+function normalizeAudioWord(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9'-]/g, "");
 }
 
 async function hasAudibleSpeech(audio: Blob) {

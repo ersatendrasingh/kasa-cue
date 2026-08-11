@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingOverlay } from "@/components/ui/loading-overlay";
 
 type SignupFormProps = {
   googleEnabled?: boolean;
@@ -35,39 +36,51 @@ export function SignupForm({ googleEnabled = false }: SignupFormProps) {
     setError("");
     setIsPending(true);
 
-    const response = await fetch("/api/auth/signup", {
-      body: JSON.stringify({ email, name, password }),
-      headers: {
-        "Content-Type": "application/json",
-      },
-      method: "POST",
-    });
+    try {
+      const response = await fetch("/api/auth/signup", {
+        body: JSON.stringify({ email, name, password }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
 
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string;
-      } | null;
-      setError(payload?.error ?? "Could not create account.");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setError(payload?.error ?? "Could not create account.");
+        setIsPending(false);
+        return;
+      }
+
+      const result = await signIn("credentials", {
+        callbackUrl: "/dashboard",
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        router.push("/login?callbackUrl=/dashboard");
+        return;
+      }
+
+      router.push(result?.url ?? "/dashboard");
+      router.refresh();
+    } catch {
+      setError("Could not create account. Please try again.");
       setIsPending(false);
-      return;
     }
+  }
 
-    const result = await signIn("credentials", {
-      callbackUrl: "/dashboard",
-      email,
-      password,
-      redirect: false,
+  function handleGoogleSignIn() {
+    setError("");
+    setIsPending(true);
+    void signIn("google", { callbackUrl: "/dashboard" }).catch(() => {
+      setError("Could not open Google sign in. Please try again.");
+      setIsPending(false);
     });
-
-    setIsPending(false);
-
-    if (result?.error) {
-      router.push("/login?callbackUrl=/dashboard");
-      return;
-    }
-
-    router.push(result?.url ?? "/dashboard");
-    router.refresh();
   }
 
   return (
@@ -89,7 +102,8 @@ export function SignupForm({ googleEnabled = false }: SignupFormProps) {
           {googleEnabled ? (
             <Button
               className="h-10 w-full gap-2 bg-white text-slate-900 shadow-sm hover:bg-slate-50"
-              onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+              disabled={isPending}
+              onClick={handleGoogleSignIn}
               type="button"
               variant="outline"
             >
@@ -160,6 +174,12 @@ export function SignupForm({ googleEnabled = false }: SignupFormProps) {
           </p>
         </CardContent>
       </Card>
+      {isPending ? (
+        <LoadingOverlay
+          description="Creating your secure Kasa Cue workspace."
+          label="Setting up your account"
+        />
+      ) : null}
     </main>
   );
 }

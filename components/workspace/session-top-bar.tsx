@@ -19,6 +19,7 @@ type SessionTopBarProps = {
   canAnswer: boolean;
   durationLabel: string;
   isGenerating: boolean;
+  isEnding: boolean;
   isListening: boolean;
   listenStatus: string;
   onAnswer: () => void;
@@ -37,6 +38,7 @@ export function SessionTopBar({
   canAnswer,
   durationLabel,
   isGenerating,
+  isEnding,
   isListening,
   listenStatus,
   onAnswer,
@@ -99,6 +101,7 @@ export function SessionTopBar({
           <Button
             aria-label="End session"
             className="size-10 rounded-xl p-0 sm:h-10 sm:w-auto sm:min-w-32 sm:rounded-md sm:px-3"
+            disabled={isEnding}
             onClick={onEnd}
             type="button"
             variant="outline"

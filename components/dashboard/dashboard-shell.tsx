@@ -2,10 +2,12 @@
 
 import { AudioLines, LogOut, MonitorUp, ShieldCheck } from "lucide-react";
 import { signOut } from "next-auth/react";
+import { useState } from "react";
 
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { LoadingOverlay } from "@/components/ui/loading-overlay";
 import type { WorkspaceUser } from "@/components/workspace/types";
 
 type DashboardShellProps = {
@@ -21,6 +23,7 @@ export function DashboardShell({
   onStartSetup,
   user,
 }: DashboardShellProps) {
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const firstName = user.name?.split(" ")[0] ?? "there";
 
   return (
@@ -56,7 +59,11 @@ export function DashboardShell({
               ) : null}
               <Button
                 variant="outline"
-                onClick={() => signOut({ callbackUrl: "/" })}
+                disabled={isSigningOut}
+                onClick={() => {
+                  setIsSigningOut(true);
+                  void signOut({ callbackUrl: "/" });
+                }}
               >
                 <LogOut className="size-4" />
                 Sign out
@@ -67,6 +74,9 @@ export function DashboardShell({
           {children}
         </section>
       </div>
+      {isSigningOut ? (
+        <LoadingOverlay label="Signing you out" />
+      ) : null}
     </main>
   );
 }

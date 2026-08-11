@@ -29,7 +29,7 @@ export function DashboardSidebar({
   const firstName = user.name?.split(" ")[0] ?? "K";
 
   return (
-    <aside className="sticky left-0 top-0 hidden h-screen w-[280px] shrink-0 border-r border-slate-200 bg-white lg:flex lg:flex-col">
+    <aside className="sticky left-0 top-0 hidden h-screen w-[280px] shrink-0 overflow-y-auto overscroll-contain border-r border-slate-200 bg-white lg:flex lg:flex-col">
       <div className="flex h-20 items-center gap-3 border-b border-slate-200 px-6">
         <div className="flex size-10 items-center justify-center rounded-md bg-slate-950 text-white">
           <AudioLines className="size-5" />

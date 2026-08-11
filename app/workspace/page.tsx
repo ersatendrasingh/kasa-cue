@@ -3,7 +3,12 @@ import type { ActiveWorkspaceSession } from "@/components/workspace/types";
 import CopilotApp from "@/components/copilot-app";
 import { prisma } from "@/lib/prisma";
 import { buildSessionContextMemory } from "@/lib/session-context-memory";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+
+export const metadata: Metadata = {
+  title: "Notes",
+};
 
 type WorkspacePageProps = {
   searchParams: Promise<{

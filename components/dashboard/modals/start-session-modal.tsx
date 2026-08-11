@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingOverlay } from "@/components/ui/loading-overlay";
 import {
   Select,
   SelectContent,
@@ -70,6 +71,8 @@ export function StartSessionModal({
     setError("");
     setIsStarting(true);
 
+    let isNavigating = false;
+
     try {
       const context = [
         `Session purpose: ${getPurposeDescription(mode)}`,
@@ -119,6 +122,7 @@ export function StartSessionModal({
         throw new Error(data.error ?? "Could not start session.");
       }
 
+      isNavigating = true;
       router.push(`/workspace?sessionId=${data.session.id}`);
     } catch (caughtError) {
       setError(
@@ -127,7 +131,9 @@ export function StartSessionModal({
           : "Could not start session."
       );
     } finally {
-      setIsStarting(false);
+      if (!isNavigating) {
+        setIsStarting(false);
+      }
     }
   }
 
@@ -157,6 +163,7 @@ export function StartSessionModal({
           </div>
           <button
             className="rounded-md p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+            disabled={isStarting}
             onClick={onClose}
             type="button"
           >
@@ -336,7 +343,7 @@ export function StartSessionModal({
         ) : null}
 
         <div className="grid grid-cols-2 gap-3 border-t border-slate-200 px-4 py-4 sm:flex sm:justify-end sm:px-6">
-          <Button variant="outline" onClick={onClose}>
+          <Button disabled={isStarting} variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -353,6 +360,12 @@ export function StartSessionModal({
           </Button>
         </div>
       </div>
+      {isStarting ? (
+        <LoadingOverlay
+          description="Connecting audio, transcript, and meeting context."
+          label="Starting your session"
+        />
+      ) : null}
     </div>
   );
 }

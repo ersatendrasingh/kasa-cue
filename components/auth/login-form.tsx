@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingOverlay } from "@/components/ui/loading-overlay";
 
 type LoginFormProps = {
   callbackUrl?: string;
@@ -41,22 +42,35 @@ export function LoginForm({
     setError("");
     setIsPending(true);
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-      callbackUrl: safeCallbackUrl,
-    });
+    try {
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+        callbackUrl: safeCallbackUrl,
+      });
 
-    setIsPending(false);
+      if (result?.error) {
+        setError("Invalid email or password.");
+        setIsPending(false);
+        return;
+      }
 
-    if (result?.error) {
-      setError("Invalid email or password.");
-      return;
+      router.push(result?.url ?? safeCallbackUrl);
+      router.refresh();
+    } catch {
+      setError("Could not sign in. Please try again.");
+      setIsPending(false);
     }
+  }
 
-    router.push(result?.url ?? safeCallbackUrl);
-    router.refresh();
+  function handleGoogleSignIn() {
+    setError("");
+    setIsPending(true);
+    void signIn("google", { callbackUrl: safeCallbackUrl }).catch(() => {
+      setError("Could not open Google sign in. Please try again.");
+      setIsPending(false);
+    });
   }
 
   return (
@@ -83,7 +97,8 @@ export function LoginForm({
           {googleEnabled ? (
             <Button
               className="h-10 w-full gap-2 bg-white text-slate-900 shadow-sm hover:bg-slate-50"
-              onClick={() => signIn("google", { callbackUrl: safeCallbackUrl })}
+              disabled={isPending}
+              onClick={handleGoogleSignIn}
               type="button"
               variant="outline"
             >
@@ -143,6 +158,12 @@ export function LoginForm({
           </p>
         </CardContent>
       </Card>
+      {isPending ? (
+        <LoadingOverlay
+          description="Opening your dashboard securely."
+          label="Signing you in"
+        />
+      ) : null}
     </main>
   );
 }
