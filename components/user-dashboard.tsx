@@ -29,7 +29,7 @@ export default function UserDashboard({
       <div className="flex-1 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 className="text-3xl font-semibold tracking-tight">
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
               Prepare your next work meeting.
             </h2>
             <p className="mt-2 max-w-2xl text-slate-600">

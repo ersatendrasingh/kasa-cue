@@ -131,13 +131,13 @@ export function DocumentManager({ initialDocuments }: DocumentManagerProps) {
             talking points so live sessions can answer with consistent context.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+          <Button className="min-w-0 px-2 sm:px-4" variant="outline">
             <Sparkles className="size-4" />
             Create AI resume
           </Button>
           <Button
-            className="bg-amber-700 text-white hover:bg-amber-800"
+            className="min-w-0 px-2 bg-amber-700 text-white hover:bg-amber-800 sm:px-4"
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="size-4" />
@@ -273,7 +273,7 @@ function DocumentList({
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="grid grid-cols-[minmax(0,1fr)_160px_160px_96px] border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-700 md:grid-cols-[minmax(0,1fr)_160px_160px_120px]">
+      <div className="hidden grid-cols-[minmax(0,1fr)_160px_160px_120px] border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-700 md:grid">
         <span>Title</span>
         <span>Type</span>
         <span>Date</span>
@@ -281,7 +281,7 @@ function DocumentList({
       </div>
       {documents.map((document) => (
         <div
-          className="grid grid-cols-[minmax(0,1fr)_160px_160px_96px] items-center border-b border-slate-100 px-5 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_160px_160px_120px]"
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_160px_160px_120px] md:gap-0 md:px-5"
           key={document.id}
         >
           <div className="flex min-w-0 items-center gap-3">
@@ -296,14 +296,14 @@ function DocumentList({
               </p>
             </div>
           </div>
-          <Badge className="w-fit gap-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+          <Badge className="col-start-1 row-start-2 w-fit gap-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-50 md:col-auto md:row-auto">
             <CheckCircle2 className="size-3.5" />
             Uploaded
           </Badge>
-          <span className="text-sm text-slate-600">
+          <span className="col-start-1 row-start-3 text-xs text-slate-500 md:col-auto md:row-auto md:text-sm md:text-slate-600">
             {formatDate(document.createdAt)}
           </span>
-          <div className="flex justify-end gap-2">
+          <div className="col-start-2 row-span-3 row-start-1 flex justify-end gap-2 md:col-auto md:row-auto">
             <Button
               className="text-red-600 hover:text-red-700"
               size="icon"

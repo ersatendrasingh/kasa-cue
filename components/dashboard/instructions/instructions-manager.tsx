@@ -85,12 +85,12 @@ export function InstructionsManager({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start gap-4">
-        <div className="flex size-14 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
-          <Sparkles className="size-7" />
+      <div className="flex items-start gap-3 sm:gap-4">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700 sm:size-14">
+          <Sparkles className="size-5 sm:size-7" />
         </div>
         <div>
-          <h2 className="text-3xl font-semibold tracking-tight">
+          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             Instructions for Kasa
           </h2>
           <p className="mt-2 text-slate-600">
@@ -152,7 +152,7 @@ export function InstructionsManager({
         </div>
       </section>
 
-      <section className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:gap-4 sm:p-5">
         <div>
           <h3 className="text-lg font-semibold">Desi Mode</h3>
           <p className="mt-1 text-sm text-slate-600">

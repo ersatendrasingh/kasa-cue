@@ -90,7 +90,7 @@ export default async function SessionDetailPage({
             <div className="mb-5 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
-                  <h1 className="text-3xl font-semibold tracking-tight">
+                  <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
                     {session.title ?? formatMode(session.mode)}
                   </h1>
                   <p className="mt-2 text-sm text-slate-600">

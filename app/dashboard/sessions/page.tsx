@@ -52,7 +52,7 @@ export default async function SessionsPage() {
 
       <div className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
         <div className="mb-6 flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             Session history
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-slate-600">
