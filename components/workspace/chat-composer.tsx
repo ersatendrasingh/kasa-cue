@@ -111,7 +111,7 @@ export function ChatComposer({
               onSend();
             }
           }}
-          className="min-h-14 resize-none bg-white py-3 pl-3 pr-14 text-sm leading-6 sm:text-base"
+          className="min-h-20 resize-none bg-white px-3 py-3.5 pr-14 text-sm leading-6 sm:min-h-16 sm:text-base"
           placeholder={intentPlaceholders[intent]}
         />
         <button

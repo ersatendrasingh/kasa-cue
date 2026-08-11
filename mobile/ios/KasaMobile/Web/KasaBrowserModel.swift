@@ -145,7 +145,7 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(
             .playAndRecord,
-            mode: .spokenAudio,
+            mode: .voiceChat,
             options: [.allowBluetoothHFP]
         )
         try? session.setActive(true)

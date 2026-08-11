@@ -77,20 +77,21 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const isGeneratingRef = useRef(false);
   const lastAutoAnsweredRef = useRef("");
   const transcriptRef = useRef("");
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const microphoneRecordersRef = useRef(new Set<MediaRecorder>());
+  const microphoneTimersRef = useRef(new Set<number>());
+  const microphoneActiveRef = useRef(false);
   const meetingAudioCaptureStreamRef = useRef<MediaStream | null>(null);
   const meetingAudioRecordersRef = useRef(new Set<MediaRecorder>());
   const meetingAudioTimersRef = useRef(new Set<number>());
   const meetingAudioActiveRef = useRef(false);
   const meetingAudioQueueRef = useRef<Promise<void>>(Promise.resolve());
   const lastMeetingAudioChunkTextRef = useRef("");
-  const audioChunksRef = useRef<Blob[]>([]);
   const discardRecordingRef = useRef(false);
   const continuousRecordingRef = useRef(false);
   const isStartingAudioRef = useRef(false);
-  const recordingSegmentTimerRef = useRef<number | null>(null);
   const audioTranscriptionQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastMicrophoneAudioChunkTextRef = useRef("");
   const awaitingNewUtteranceRef = useRef(true);
   const utteranceSilenceTimerRef = useRef<number | null>(null);
   const speechVisibleTextRef = useRef("");
@@ -702,7 +703,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     setWarning("");
 
     try {
-      if (!(await hasAudibleSpeech(audio))) {
+      if (!(await hasAudibleSpeechWithoutBlocking(audio))) {
         setListenStatus(activeListenStatus);
         return;
       }
@@ -759,16 +760,19 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       }
 
       const rawCleanText = data.transcript.trim();
-      const cleanText =
+      const previousAudioChunk =
         source === "meeting"
-          ? removeOverlappingAudioPrefix(
-              lastMeetingAudioChunkTextRef.current,
-              rawCleanText
-            )
-          : rawCleanText;
+          ? lastMeetingAudioChunkTextRef.current
+          : lastMicrophoneAudioChunkTextRef.current;
+      const cleanText = removeOverlappingAudioPrefix(
+        previousAudioChunk,
+        rawCleanText
+      );
 
       if (source === "meeting") {
         lastMeetingAudioChunkTextRef.current = rawCleanText;
+      } else {
+        lastMicrophoneAudioChunkTextRef.current = rawCleanText;
       }
 
       if (!cleanText) {
@@ -916,11 +920,15 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         audio: {
           autoGainControl: true,
           channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
+          echoCancellation: true,
+          noiseSuppression: true,
         },
       });
       continuousRecordingRef.current = true;
+      microphoneActiveRef.current = true;
+      discardRecordingRef.current = false;
+      mediaStreamRef.current = stream;
+      lastMicrophoneAudioChunkTextRef.current = "";
       beginRecordingStream(stream, "Listening");
       setError("");
       setWarning("");
@@ -1088,6 +1096,13 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   }
 
   function beginRecordingStream(stream: MediaStream, status: string) {
+    if (
+      !microphoneActiveRef.current ||
+      !stream.getAudioTracks().some((track) => track.readyState === "live")
+    ) {
+      return;
+    }
+
     const preferredType = [
       "audio/webm;codecs=opus",
       "audio/webm",
@@ -1098,46 +1113,56 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       preferredType ? { mimeType: preferredType } : undefined
     );
 
-    audioChunksRef.current = [];
-    discardRecordingRef.current = false;
-    mediaStreamRef.current = stream;
-    mediaRecorderRef.current = recorder;
+    const chunks: Blob[] = [];
+    microphoneRecordersRef.current.add(recorder);
     recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      if (event.data.size > 0) chunks.push(event.data);
     };
     recorder.onstop = () => {
-      const audio = new Blob(audioChunksRef.current, {
+      const audio = new Blob(chunks, {
         type: recorder.mimeType || "audio/webm",
       });
-      mediaRecorderRef.current = null;
-      audioChunksRef.current = [];
-      if (audio.size > 0 && !discardRecordingRef.current) {
+      microphoneRecordersRef.current.delete(recorder);
+      if (audio.size > 1000 && !discardRecordingRef.current) {
         audioTranscriptionQueueRef.current = audioTranscriptionQueueRef.current
           .catch(() => undefined)
           .then(() => transcribeRecordedAudio(audio));
       }
-
-      if (
-        continuousRecordingRef.current &&
-        !discardRecordingRef.current &&
-        stream.getAudioTracks().some((track) => track.readyState === "live")
-      ) {
-        beginRecordingStream(stream, status);
-        return;
-      }
-
-      stream.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-      setIsListening(false);
     };
     recorder.start();
-    recordingSegmentTimerRef.current = window.setTimeout(() => {
+
+    let nextSegmentTimer = 0;
+    nextSegmentTimer = window.setTimeout(() => {
+      microphoneTimersRef.current.delete(nextSegmentTimer);
+      beginRecordingStream(stream, status);
+    }, 2200);
+    microphoneTimersRef.current.add(nextSegmentTimer);
+
+    let stopSegmentTimer = 0;
+    stopSegmentTimer = window.setTimeout(() => {
+      microphoneTimersRef.current.delete(stopSegmentTimer);
       if (recorder.state === "recording") {
         recorder.stop();
       }
-    }, 1800);
+    }, 3200);
+    microphoneTimersRef.current.add(stopSegmentTimer);
     setIsListening(true);
     setListenStatus(status);
+  }
+
+  function stopMicrophoneCapture() {
+    microphoneActiveRef.current = false;
+    continuousRecordingRef.current = false;
+    microphoneTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    microphoneTimersRef.current.clear();
+    microphoneRecordersRef.current.forEach((recorder) => {
+      if (recorder.state === "recording") recorder.stop();
+    });
+    microphoneRecordersRef.current.clear();
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    lastMicrophoneAudioChunkTextRef.current = "";
+    setIsListening(false);
   }
 
   async function startListening(allowRecorderFallback = false) {
@@ -1311,15 +1336,8 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       recognitionRef.current?.stop();
       recognitionRef.current = null;
       discardRecordingRef.current = true;
-      continuousRecordingRef.current = false;
-      if (recordingSegmentTimerRef.current) {
-        window.clearTimeout(recordingSegmentTimerRef.current);
-      }
+      stopMicrophoneCapture();
       stopMeetingAudioCapture();
-      if (mediaRecorderRef.current?.state === "recording") {
-        mediaRecorderRef.current.stop();
-      }
-      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       if (typingTimerRef.current) {
         window.clearInterval(typingTimerRef.current);
       }
@@ -1357,18 +1375,11 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     if (isEnding) return;
     setIsEnding(true);
     shouldKeepListeningRef.current = false;
-    continuousRecordingRef.current = false;
+    discardRecordingRef.current = true;
+    stopMicrophoneCapture();
     stopMeetingAudioCapture();
-    if (recordingSegmentTimerRef.current) {
-      window.clearTimeout(recordingSegmentTimerRef.current);
-      recordingSegmentTimerRef.current = null;
-    }
     recognitionRef.current?.stop();
     recognitionRef.current = null;
-    discardRecordingRef.current = true;
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
     setIsListening(false);
     setListenStatus("Saving session");
 
@@ -1659,6 +1670,15 @@ async function hasAudibleSpeech(audio: Blob) {
   } finally {
     await audioContext?.close().catch(() => undefined);
   }
+}
+
+async function hasAudibleSpeechWithoutBlocking(audio: Blob) {
+  return Promise.race([
+    hasAudibleSpeech(audio),
+    new Promise<true>((resolve) => {
+      window.setTimeout(() => resolve(true), 500);
+    }),
+  ]);
 }
 
 function getSafeErrorMessage(message: string) {
