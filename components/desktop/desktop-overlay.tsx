@@ -421,7 +421,7 @@ export function DesktopOverlay({
       formData.append("audio", blob, "desktop-audio.webm");
       formData.append("mode", initialMode);
       formData.append(
-        "prompt",
+        "context",
         buildTranscriptionPrompt(source, initialMode, transcriptRef.current)
       );
       formData.append("source", source);

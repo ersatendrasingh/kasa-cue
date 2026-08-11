@@ -1,5 +1,9 @@
 import { getCurrentUser } from "@/lib/desktop-auth";
-import { isLikelyTranscriptionArtifact } from "@/lib/transcript-safety";
+import { correctTranscriptWithContext } from "@/lib/transcript-correction";
+import {
+  cleanSpeechDisfluencies,
+  isLikelyTranscriptionArtifact,
+} from "@/lib/transcript-safety";
 
 const OPENAI_API_URL = "https://api.openai.com/v1";
 const TRANSCRIPTION_MODEL =
@@ -41,12 +45,14 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const audio = formData.get("audio");
     const mode = String(formData.get("mode") ?? "client-call");
+    const context = String(formData.get("context") ?? "");
     const prompt = String(formData.get("prompt") ?? "");
     const tone = String(formData.get("tone") ?? "adaptive-genuine");
     const instructions = String(formData.get("instructions") ?? "");
     const language = String(formData.get("language") ?? "");
     const outputLanguage = String(formData.get("outputLanguage") ?? "english");
     const transcribeOnly = String(formData.get("transcribeOnly") ?? "") === "true";
+    const fast = String(formData.get("fast") ?? "") === "true";
 
     if (!(audio instanceof File) || audio.size === 0) {
       return Response.json(
@@ -64,14 +70,30 @@ export async function POST(request: Request) {
       );
     }
 
+    if (transcribeOnly && fast) {
+      const fastTranscript = cleanSpeechDisfluencies(transcription.text);
+
+      return Response.json({
+        transcript: fastTranscript,
+        models: {
+          transcription: TRANSCRIPTION_MODEL,
+        },
+      });
+    }
+
     const normalizedTranscript = await normalizeTranscriptLanguage(
       transcription.text,
       outputLanguage
     );
+    const correctedTranscript = await correctTranscriptWithContext({
+      context,
+      language: outputLanguage,
+      text: normalizedTranscript,
+    });
 
     if (
-      !normalizedTranscript ||
-      isLikelyTranscriptionArtifact(normalizedTranscript, prompt)
+      !correctedTranscript ||
+      isLikelyTranscriptionArtifact(correctedTranscript, prompt)
     ) {
       return Response.json(
         { error: "No speech detected in this audio chunk." },
@@ -81,7 +103,7 @@ export async function POST(request: Request) {
 
     if (transcribeOnly) {
       return Response.json({
-        transcript: normalizedTranscript,
+        transcript: correctedTranscript,
         models: {
           transcription: TRANSCRIPTION_MODEL,
         },
@@ -89,14 +111,14 @@ export async function POST(request: Request) {
     }
 
     const reply = await generateReply({
-      transcript: normalizedTranscript,
+      transcript: correctedTranscript,
       instructions,
       mode,
       tone,
     });
 
     return Response.json({
-      transcript: normalizedTranscript,
+      transcript: correctedTranscript,
       reply,
       models: {
         transcription: TRANSCRIPTION_MODEL,

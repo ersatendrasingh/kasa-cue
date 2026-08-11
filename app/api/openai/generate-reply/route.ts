@@ -22,9 +22,12 @@ type GenerateReplyRequest = {
   intent?: string;
   instructions?: string;
   language?: string;
+  latestSpeakerTurn?: string;
+  meetingMemory?: string;
   model?: string;
   mode?: string;
   responseLength?: string;
+  repeatedQuestion?: string;
   sessionId?: string;
   stream?: boolean;
   tone?: string;
@@ -77,7 +80,7 @@ export async function POST(request: Request) {
     const isLiveWorkMode = requestedMode !== "interview";
     const fastHistoryContext = normalizePromptText(
       body.historyContext?.trim() ?? "",
-      isLiveWorkMode ? 8000 : 18000
+      isLiveWorkMode ? 12000 : 18000
     );
     const sessionContext = fastHistoryContext
       ? {
@@ -95,7 +98,19 @@ export async function POST(request: Request) {
     );
     const conversationHistory = normalizePromptText(
       body.conversationHistory?.trim() ?? "",
-      isLiveWorkMode ? 14000 : 24000
+      isLiveWorkMode ? 20000 : 24000
+    );
+    const meetingMemory = normalizePromptText(
+      body.meetingMemory?.trim() ?? "",
+      9000
+    );
+    const latestSpeakerTurn = normalizePromptText(
+      body.latestSpeakerTurn?.trim() ?? "",
+      10000
+    );
+    const repeatedQuestion = normalizePromptText(
+      body.repeatedQuestion?.trim() ?? "",
+      2000
     );
     const mode = normalizeOption(body.mode || sessionContext.mode, [
       "interview",
@@ -103,7 +118,7 @@ export async function POST(request: Request) {
       "client-call",
     ]);
     const latestQuestion = getLatestMeaningfulTranscriptLine(
-      transcript,
+      repeatedQuestion || latestSpeakerTurn || transcript,
       mode,
       intent
     );
@@ -245,7 +260,10 @@ export async function POST(request: Request) {
             isContinuation,
             language,
             latestQuestion,
+            latestSpeakerTurn,
+            meetingMemory,
             mode,
+            repeatedQuestion,
             responseLength,
             taskType,
             tone,
@@ -1161,7 +1179,14 @@ function getFastWorkSystemPrompt() {
     "You are Kasa Cue, a fast private workplace communication copilot.",
     "Follow the explicit user intent: reply, convert a thought to English, create a question, or prepare a standup update.",
     "For ordinary workplace communication, write natural first-person English the user can speak immediately. For a technical or learning question, give a useful structured explanation the user can read and understand.",
+    "For normal conversation, sound like a real teammate speaking naturally in a meeting—not an assistant, email template, corporate statement, or polished AI response.",
+    "Use everyday spoken English, contractions, and a human rhythm. Prefer words like I'll, we're, that's, I think, and sounds good when they fit naturally.",
+    "Do not repeat the other person's question before answering. Avoid generic acknowledgements, over-explaining, formal transitions, buzzwords, and unnecessary conclusions.",
+    "Do not use headings, bullets, bold markup, or multiple alternatives for an ordinary live reply. Use them only for technical explanations, preparation notes, standups, summaries, or genuinely multi-part answers.",
     "Answer the latest speaker's complete point, including pause-separated fragments in the latest continuous turn.",
+    "Before answering, silently reconstruct the current topic, the speaker's goal, the important facts and constraints, and the actual question from the full latest speaker turn plus meeting memory. Never answer from only the final sentence when it belongs to a longer explanation.",
+    "If a question is repeated because the user asked the speaker to repeat it, treat it as the same unresolved question. Use its original full meaning and the surrounding discussion; do not discard it as duplicate audio or treat it as a new topic.",
+    "Keep useful facts from earlier turns and previous meetings active: decisions, owners, promises, blockers, tasks, dates, project terminology, and unanswered questions. The newest explicit correction overrides older memory.",
     "Use prior meeting context only to resolve continuity, earlier decisions, blockers, commitments, people, dates, and references such as 'that issue'.",
     "Prefer the live statement when old context conflicts with it.",
     "Preserve names, numbers, project terms, owners, deadlines, and requested actions exactly; never invent facts.",
@@ -1188,7 +1213,10 @@ function getFastWorkUserPrompt({
   isContinuation,
   language,
   latestQuestion,
+  latestSpeakerTurn,
+  meetingMemory,
   mode,
+  repeatedQuestion,
   responseLength,
   taskType,
   tone,
@@ -1200,7 +1228,10 @@ function getFastWorkUserPrompt({
   isContinuation: boolean;
   language: string;
   latestQuestion: string;
+  latestSpeakerTurn: string;
+  meetingMemory: string;
   mode: string;
+  repeatedQuestion: string;
   responseLength: string;
   taskType: string;
   tone: string;
@@ -1215,10 +1246,17 @@ function getFastWorkUserPrompt({
     `Length: ${responseLength}`,
     `Detected task: ${taskType}`,
     instructions ? `Meeting memory and instructions:\n${instructions}` : "",
+    meetingMemory ? meetingMemory : "",
     conversationHistory
       ? `Current in-session conversation, including earlier answers:\n${conversationHistory}`
       : "",
     `Latest point to answer:\n${latestQuestion}`,
+    latestSpeakerTurn
+      ? `Latest complete pause-separated speaker turn:\n${latestSpeakerTurn}`
+      : "",
+    repeatedQuestion
+      ? `The speaker repeated this unresolved question:\n${repeatedQuestion}\nAnswer this same question from its original meeting context.`
+      : "",
     `Recent live discussion:\n${transcript}`,
     isContinuation
       ? "The latest point is a continuation request. Expand the immediately previous Kasa answer with substantially more useful detail; do not reinterpret it as a new standalone question and do not repeat the same definition."

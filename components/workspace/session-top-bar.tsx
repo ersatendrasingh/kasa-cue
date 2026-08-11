@@ -7,6 +7,7 @@ import {
   Timer,
   WandSparkles,
 } from "lucide-react";
+import Image from "next/image";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ type SessionTopBarProps = {
   onAnswer: () => void;
   onAutoAnswerChange: (enabled: boolean) => void;
   onEnd: () => void;
+  onListeningClick: () => void;
 };
 
 type MobileAnswerDockProps = Pick<
@@ -40,19 +42,40 @@ export function SessionTopBar({
   onAnswer,
   onAutoAnswerChange,
   onEnd,
+  onListeningClick,
 }: SessionTopBarProps) {
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:px-6 sm:py-4">
-      <div className="flex items-center gap-2 sm:justify-between sm:gap-3">
-        <div
-          aria-live="polite"
-          className={`flex h-10 min-w-0 flex-1 items-center justify-start gap-2 rounded-xl px-3 text-sm font-semibold text-white sm:h-10 sm:flex-none sm:rounded-md sm:px-4 ${
-            isListening ? "bg-emerald-600" : "bg-slate-900"
-          }`}
-          role="status"
-        >
-          <Mic className={isListening ? "size-4 animate-pulse" : "size-4"} />
-          <span className="truncate">{listenStatus}</span>
+      <div className="flex items-center justify-between gap-2 sm:gap-3">
+        <div className="flex shrink-0 items-center gap-2">
+          <Image
+            alt="Kasa Cue"
+            className="size-9 rounded-xl shadow-sm sm:size-10"
+            height={40}
+            priority
+            src="/kasa-icon.png"
+            width={40}
+          />
+          <button
+            aria-label={`${isListening ? "Listening is ready" : listenStatus}. Connect meeting audio`}
+            aria-live="polite"
+            className={`flex size-10 shrink-0 items-center justify-center rounded-full border text-sm font-semibold sm:h-10 sm:w-auto sm:justify-start sm:gap-2 sm:rounded-full sm:px-3 ${
+              isListening
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-200 bg-slate-100 text-slate-700"
+            }`}
+            onClick={onListeningClick}
+            role="status"
+            title={`${listenStatus} · Connect meeting audio`}
+            type="button"
+          >
+            <Mic
+              className={isListening ? "size-4 animate-pulse" : "size-4"}
+            />
+            <span className="hidden max-w-48 truncate sm:inline">
+              {listenStatus}
+            </span>
+          </button>
         </div>
 
         <Badge className="h-10 gap-1.5 rounded-xl bg-slate-100 px-2.5 text-xs text-slate-900 hover:bg-slate-100 sm:gap-2 sm:rounded-md sm:px-4 sm:text-sm">

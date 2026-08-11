@@ -19,6 +19,53 @@ export function normalizeTranscriptFingerprint(value: string) {
     .trim();
 }
 
+export function cleanSpeechDisfluencies(value: string) {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  const output: string[] = [];
+  const emphasisWords = new Set(["no", "yes", "very", "really", "so"]);
+  let index = 0;
+
+  while (index < tokens.length) {
+    let repeatedLength = 0;
+
+    for (let length = Math.min(4, output.length); length >= 1; length -= 1) {
+      if (index + length > tokens.length) continue;
+
+      const previous = output
+        .slice(-length)
+        .map(normalizeSpeechToken)
+        .join(" ");
+      const incoming = tokens
+        .slice(index, index + length)
+        .map(normalizeSpeechToken)
+        .join(" ");
+
+      if (
+        previous &&
+        previous === incoming &&
+        !(length === 1 && emphasisWords.has(incoming))
+      ) {
+        repeatedLength = length;
+        break;
+      }
+    }
+
+    if (repeatedLength) {
+      index += repeatedLength;
+      continue;
+    }
+
+    output.push(tokens[index]);
+    index += 1;
+  }
+
+  return output
+    .join(" ")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export function isLikelyTranscriptionArtifact(
   value: string,
   prompt = ""
@@ -78,4 +125,8 @@ function hasSharedWordRun(first: string, second: string, runLength: number) {
   }
 
   return false;
+}
+
+function normalizeSpeechToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9'-]/g, "");
 }

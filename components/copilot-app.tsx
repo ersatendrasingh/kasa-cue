@@ -38,6 +38,11 @@ type BufferedSessionTurn = {
   speaker: "other" | "user" | "assistant";
 };
 
+type RepeatedQuestion = {
+  count: number;
+  text: string;
+};
+
 export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const router = useRouter();
   const [transcript, setTranscript] = useState("");
@@ -51,6 +56,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   );
   const [isGenerating, setIsGenerating] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isMeetingAudioCapturing, setIsMeetingAudioCapturing] = useState(false);
   const [autoAnswer, setAutoAnswer] = useState(false);
   const [listenStatus, setListenStatus] = useState("Start meeting audio");
   const [durationLabel, setDurationLabel] = useState("0:00");
@@ -70,6 +76,10 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const transcriptRef = useRef("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const meetingAudioCaptureStreamRef = useRef<MediaStream | null>(null);
+  const meetingAudioRecorderRef = useRef<MediaRecorder | null>(null);
+  const meetingAudioSegmentTimerRef = useRef<number | null>(null);
+  const meetingAudioQueueRef = useRef<Promise<void>>(Promise.resolve());
   const audioChunksRef = useRef<Blob[]>([]);
   const discardRecordingRef = useRef(false);
   const continuousRecordingRef = useRef(false);
@@ -83,6 +93,9 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const pendingSpeakerTurnRef = useRef<string[]>([]);
   const speechActivityVersionRef = useRef(0);
   const bufferedTurnsRef = useRef<BufferedSessionTurn[]>([]);
+  const conversationTurnsRef = useRef<BufferedSessionTurn[]>([]);
+  const unresolvedQuestionRef = useRef("");
+  const repeatedQuestionRef = useRef<RepeatedQuestion | null>(null);
   const remoteTurnCursorRef = useRef(
     new Date(activeSession.startedAt).toISOString()
   );
@@ -182,10 +195,16 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           remoteTurnIdsRef.current.add(turn.id);
           const line = turn.content.trim();
 
-          if (
-            isLikelyTranscriptionArtifact(line) ||
-            recentLinesContainDuplicate(nextTranscript, line)
-          ) {
+          if (isLikelyTranscriptionArtifact(line)) {
+            continue;
+          }
+
+          const repeatedLine = findRecentDuplicateLine(nextTranscript, line);
+
+          if (repeatedLine) {
+            if (turn.speaker === "other") {
+              rememberRepeatedQuestion(line, repeatedLine);
+            }
             continue;
           }
 
@@ -210,6 +229,11 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           nextTranscript = [nextTranscript.trim(), labelledLine]
             .filter(Boolean)
             .join("\n");
+          rememberConversationTurn({
+            content: line,
+            createdAt: turn.createdAt,
+            speaker: turn.speaker === "user" ? "user" : "other",
+          });
           if (turn.speaker === "other") {
             pendingSpeakerTurnRef.current.push(line);
           }
@@ -260,6 +284,8 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       .join(" ")
       .trim();
     const pendingSegmentCount = pendingSpeakerTurnRef.current.length;
+    const repeatedQuestion = repeatedQuestionRef.current;
+    const latestSpeakerTurn = pendingSpeakerTurn || unresolvedQuestionRef.current;
     const recentTranscript = getRecentTranscript(normalizedTranscript);
     const intent = options.intent ?? "live-reply";
     const isProactiveIntent = intent !== "live-reply";
@@ -296,7 +322,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         },
         body: JSON.stringify({
           conversationHistory: buildLiveConversationHistory(
-            bufferedTurnsRef.current
+            conversationTurnsRef.current
           ),
           intent,
           language: options.language ?? activeSession.language,
@@ -308,7 +334,14 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
             .filter(Boolean)
             .join("\n\n"),
           mode: activeSession.mode,
+          meetingMemory: buildCurrentMeetingMemory({
+            repeatedQuestion,
+            turns: conversationTurnsRef.current,
+            unresolvedQuestion: unresolvedQuestionRef.current,
+          }),
           model: activeSession.model,
+          latestSpeakerTurn,
+          repeatedQuestion: repeatedQuestion?.text ?? "",
           responseLength: "adaptive",
           sessionId: activeSession.id,
           stream: true,
@@ -343,6 +376,8 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       if (!isProactiveIntent) {
         pendingSpeakerTurnRef.current =
           pendingSpeakerTurnRef.current.slice(pendingSegmentCount);
+        unresolvedQuestionRef.current = "";
+        repeatedQuestionRef.current = null;
       }
     } catch (caughtError) {
       const message =
@@ -362,12 +397,47 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     content: string,
     turnModel?: string
   ) {
-    bufferedTurnsRef.current.push({
+    const turn: BufferedSessionTurn = {
       content,
       createdAt: new Date().toISOString(),
       model: turnModel,
       speaker,
-    });
+    };
+
+    bufferedTurnsRef.current.push(turn);
+    rememberConversationTurn(turn);
+    return turn;
+  }
+
+  function rememberConversationTurn(turn: BufferedSessionTurn) {
+    if (!turn.content.trim() || isLikelyTranscriptionArtifact(turn.content)) {
+      return;
+    }
+
+    conversationTurnsRef.current.push(turn);
+    conversationTurnsRef.current = conversationTurnsRef.current.slice(-160);
+
+    if (turn.speaker === "other" && looksLikeQuestion(turn.content)) {
+      unresolvedQuestionRef.current = turn.content.trim();
+    }
+  }
+
+  function rememberRepeatedQuestion(candidate: string, matchingLine: string) {
+    const cleanCandidate = stripTranscriptSpeakerLabel(candidate);
+    const cleanMatch = stripTranscriptSpeakerLabel(matchingLine);
+    const question = looksLikeQuestion(cleanCandidate)
+      ? cleanCandidate
+      : looksLikeQuestion(cleanMatch)
+        ? cleanMatch
+        : unresolvedQuestionRef.current;
+
+    if (!question) return;
+
+    unresolvedQuestionRef.current = question;
+    repeatedQuestionRef.current = {
+      count: (repeatedQuestionRef.current?.count ?? 1) + 1,
+      text: question,
+    };
   }
 
   async function flushBufferedTurns() {
@@ -527,10 +597,14 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     rawText: string,
     activityVersion: number
   ) {
-    if (
-      isLikelyTranscriptionArtifact(rawText) ||
-      recentLinesContainDuplicate(transcriptRef.current, rawText)
-    ) {
+    if (isLikelyTranscriptionArtifact(rawText)) {
+      return;
+    }
+
+    const repeatedLine = findRecentDuplicateLine(transcriptRef.current, rawText);
+
+    if (repeatedLine) {
+      rememberRepeatedQuestion(rawText, repeatedLine);
       return;
     }
 
@@ -548,6 +622,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     transcriptRef.current = nextTranscript;
     pendingSpeakerTurnRef.current.push(rawText);
     bufferedTurnsRef.current.push(bufferedTurn);
+    rememberConversationTurn(bufferedTurn);
     setTranscript(nextTranscript);
 
     void refineTranscriptLine(rawText)
@@ -609,12 +684,20 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
 
     try {
       if (!(await hasAudibleSpeech(audio))) {
-        setListenStatus("Listening to both sides");
+        setListenStatus("Listening");
         return;
       }
 
-      setListenStatus("Transcribing");
       const formData = new FormData();
+      const transcriptionContext = [
+        activeSession.title,
+        activeSession.context,
+        activeSession.instructions,
+        getRecentTranscript(transcriptRef.current),
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .slice(-3000);
       formData.append(
         "audio",
         new File([audio], "meeting-audio.webm", {
@@ -622,7 +705,10 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         })
       );
       formData.append("mode", activeSession.mode);
+      formData.append("context", transcriptionContext);
+      formData.append("prompt", transcriptionContext.slice(-800));
       formData.append("transcribeOnly", "true");
+      formData.append("fast", "true");
       formData.append("outputLanguage", activeSession.language);
       formData.append(
         "language",
@@ -645,7 +731,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       if (response.status === 422) {
         recordingVisibleTextRef.current = "";
         recordingLastSpeechAtRef.current = 0;
-        setListenStatus("Listening to both sides");
+        setListenStatus("Listening");
         return;
       }
 
@@ -659,14 +745,25 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         (segment) => spokenAt - segment.time < 30000
       );
 
-      if (
-        isLikelyTranscriptionArtifact(cleanText) ||
-        recentAudioSegmentsRef.current.some((segment) =>
-          isNearDuplicateTranscript(cleanText, segment.text)
-        ) ||
-        recentLinesContainDuplicate(transcriptRef.current, cleanText)
-      ) {
-        setListenStatus("Listening to both sides");
+      if (isLikelyTranscriptionArtifact(cleanText)) {
+        setListenStatus("Listening");
+        return;
+      }
+
+      const repeatedAudioLine = recentAudioSegmentsRef.current.find((segment) =>
+        isNearDuplicateTranscript(cleanText, segment.text)
+      )?.text;
+      const repeatedTranscriptLine = findRecentDuplicateLine(
+        transcriptRef.current,
+        cleanText
+      );
+
+      if (repeatedAudioLine || repeatedTranscriptLine) {
+        rememberRepeatedQuestion(
+          cleanText,
+          repeatedTranscriptLine ?? repeatedAudioLine ?? cleanText
+        );
+        setListenStatus("Listening");
         return;
       }
 
@@ -677,6 +774,8 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       const nextTranscript = [transcriptRef.current.trim(), cleanText]
         .filter(Boolean)
         .join("\n");
+      const transcriptLineIndex = nextTranscript.split("\n").length - 1;
+      const pendingIndex = pendingSpeakerTurnRef.current.length;
 
       transcriptRef.current = nextTranscript;
       pendingSpeakerTurnRef.current.push(cleanText);
@@ -689,12 +788,45 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       }
       setTranscript(nextTranscript);
       setLiveTranscript(recordingVisibleTextRef.current);
-      saveSessionTurn("other", cleanText);
+      const bufferedTurn = saveSessionTurn("other", cleanText);
       setListenStatus(
         continuousRecordingRef.current
-          ? "Listening to both sides"
+          ? "Listening"
           : "Ready to record"
       );
+
+      // The raw transcription is already visible. Improve uncertain words in
+      // the background without making the live strip wait for a second model.
+      void refineTranscriptLine(cleanText)
+        .then((correctedText) => {
+          if (!correctedText || correctedText === cleanText) return;
+
+          const transcriptLines = transcriptRef.current.split("\n");
+
+          if (transcriptLines[transcriptLineIndex] === cleanText) {
+            transcriptLines[transcriptLineIndex] = correctedText;
+            const correctedTranscript = transcriptLines.join("\n");
+            transcriptRef.current = correctedTranscript;
+            setTranscript(correctedTranscript);
+          }
+          if (pendingSpeakerTurnRef.current[pendingIndex] === cleanText) {
+            pendingSpeakerTurnRef.current[pendingIndex] = correctedText;
+          }
+          if (bufferedTurn.content === cleanText) {
+            bufferedTurn.content = correctedText;
+          }
+          setLiveTranscript((currentText) => {
+            const normalizedCurrent = currentText.trim();
+
+            if (normalizedCurrent === cleanText) return correctedText;
+            if (normalizedCurrent.endsWith(cleanText)) {
+              return `${normalizedCurrent.slice(0, -cleanText.length)}${correctedText}`;
+            }
+
+            return currentText;
+          });
+        })
+        .catch(() => undefined);
 
       if (autoAnswerRef.current) {
         if (autoAnswerTimerRef.current) {
@@ -735,7 +867,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         },
       });
       continuousRecordingRef.current = true;
-      beginRecordingStream(stream, "Listening to both sides");
+      beginRecordingStream(stream, "Listening");
       setError("");
       setWarning("");
     } catch (caughtError) {
@@ -747,6 +879,130 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           : "The microphone could not start. Check that another app is not using it."
       );
     }
+  }
+
+  async function startMeetingAudioCapture() {
+    if (isMeetingAudioCapturing) return;
+
+    if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) {
+      setWarning(
+        "This browser cannot capture meeting audio. Use the latest Chrome or the Kasa Cue desktop app."
+      );
+      return;
+    }
+
+    setError("");
+    setWarning("");
+
+    try {
+      const captureStream = await navigator.mediaDevices.getDisplayMedia({
+        audio: {
+          autoGainControl: false,
+          echoCancellation: false,
+          noiseSuppression: false,
+        },
+        video: {
+          frameRate: { ideal: 1, max: 1 },
+          height: { ideal: 2 },
+          width: { ideal: 2 },
+        },
+      } as DisplayMediaStreamOptions);
+      const audioTracks = captureStream.getAudioTracks();
+
+      if (!audioTracks.length) {
+        captureStream.getTracks().forEach((track) => track.stop());
+        throw new Error(
+          "No meeting audio was shared. Choose the meeting tab/window and enable Share audio in the browser dialog."
+        );
+      }
+
+      meetingAudioCaptureStreamRef.current = captureStream;
+      captureStream.getVideoTracks().forEach((track) => track.stop());
+      const audioStream = new MediaStream(audioTracks);
+      const audioTrack = audioTracks[0];
+
+      audioTrack.addEventListener(
+        "ended",
+        () => {
+          stopMeetingAudioCapture();
+        },
+        { once: true }
+      );
+      beginMeetingAudioRecording(audioStream);
+      setIsMeetingAudioCapturing(true);
+      setListenStatus("Mic + meeting audio");
+    } catch (caughtError) {
+      const errorName = caughtError instanceof Error ? caughtError.name : "";
+
+      if (errorName === "NotAllowedError") {
+        setWarning(
+          "Meeting audio was not connected. Tap the listening icon again and allow the meeting tab/window with Share audio enabled."
+        );
+        return;
+      }
+
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Meeting audio could not be connected."
+      );
+    }
+  }
+
+  function beginMeetingAudioRecording(stream: MediaStream) {
+    const preferredType = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ].find((type) => MediaRecorder.isTypeSupported(type));
+    const recorder = new MediaRecorder(
+      stream,
+      preferredType ? { mimeType: preferredType } : undefined
+    );
+    const chunks: Blob[] = [];
+
+    meetingAudioRecorderRef.current = recorder;
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.onstop = () => {
+      const audio = new Blob(chunks, {
+        type: recorder.mimeType || "audio/webm",
+      });
+      meetingAudioRecorderRef.current = null;
+
+      if (audio.size > 1000) {
+        meetingAudioQueueRef.current = meetingAudioQueueRef.current
+          .catch(() => undefined)
+          .then(() => transcribeRecordedAudio(audio));
+      }
+
+      if (stream.getAudioTracks().some((track) => track.readyState === "live")) {
+        beginMeetingAudioRecording(stream);
+      }
+    };
+    recorder.start();
+    meetingAudioSegmentTimerRef.current = window.setTimeout(() => {
+      if (recorder.state === "recording") recorder.stop();
+    }, 1800);
+  }
+
+  function stopMeetingAudioCapture() {
+    if (meetingAudioSegmentTimerRef.current) {
+      window.clearTimeout(meetingAudioSegmentTimerRef.current);
+      meetingAudioSegmentTimerRef.current = null;
+    }
+    if (meetingAudioRecorderRef.current?.state === "recording") {
+      meetingAudioRecorderRef.current.stop();
+    }
+    meetingAudioCaptureStreamRef.current
+      ?.getTracks()
+      .forEach((track) => track.stop());
+    meetingAudioRecorderRef.current = null;
+    meetingAudioCaptureStreamRef.current = null;
+    setIsMeetingAudioCapturing(false);
+    setListenStatus(isListening ? "Listening" : "Start meeting audio");
   }
 
   function beginRecordingStream(stream: MediaStream, status: string) {
@@ -797,21 +1053,13 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       if (recorder.state === "recording") {
         recorder.stop();
       }
-    }, 3500);
+    }, 1800);
     setIsListening(true);
     setListenStatus(status);
   }
 
   async function startListening(allowRecorderFallback = false) {
     setError("");
-
-    if (
-      allowRecorderFallback &&
-      window.matchMedia("(pointer: coarse)").matches
-    ) {
-      await startAudioRecording();
-      return;
-    }
 
     const SpeechRecognition =
       (window as SpeechWindow).SpeechRecognition ??
@@ -931,7 +1179,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           } catch {
             setListenStatus("Reconnecting");
           }
-        }, 350);
+        }, 80);
         return;
       }
 
@@ -968,6 +1216,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       if (recordingSegmentTimerRef.current) {
         window.clearTimeout(recordingSegmentTimerRef.current);
       }
+      stopMeetingAudioCapture();
       if (mediaRecorderRef.current?.state === "recording") {
         mediaRecorderRef.current.stop();
       }
@@ -1008,6 +1257,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
   async function endSession() {
     shouldKeepListeningRef.current = false;
     continuousRecordingRef.current = false;
+    stopMeetingAudioCapture();
     if (recordingSegmentTimerRef.current) {
       window.clearTimeout(recordingSegmentTimerRef.current);
       recordingSegmentTimerRef.current = null;
@@ -1045,11 +1295,14 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           canAnswer={Boolean(getRecentTranscript(transcript))}
           durationLabel={durationLabel}
           isGenerating={isGenerating}
-          isListening={isListening}
-          listenStatus={listenStatus}
+          isListening={isListening || isMeetingAudioCapturing}
+          listenStatus={
+            isMeetingAudioCapturing ? "Mic + meeting audio" : listenStatus
+          }
           onAnswer={() => void generateReply()}
           onAutoAnswerChange={setAutoAnswer}
           onEnd={() => void endSession()}
+          onListeningClick={() => void startMeetingAudioCapture()}
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5 pb-[calc(6.5rem+env(safe-area-inset-bottom))] sm:p-4">
@@ -1126,7 +1379,7 @@ function getRecentTranscript(transcript: string) {
 
 function buildLiveConversationHistory(turns: BufferedSessionTurn[]) {
   const history = turns
-    .slice(-24)
+    .slice(-64)
     .map((turn) => {
       const speaker =
         turn.speaker === "assistant"
@@ -1140,14 +1393,87 @@ function buildLiveConversationHistory(turns: BufferedSessionTurn[]) {
     .filter((line) => !isLikelyTranscriptionArtifact(line))
     .join("\n\n");
 
-  return history.length > 14000 ? history.slice(-14000) : history;
+  return history.length > 20000 ? history.slice(-20000) : history;
 }
 
-function recentLinesContainDuplicate(transcript: string, candidate: string) {
+function findRecentDuplicateLine(transcript: string, candidate: string) {
   return transcript
     .split("\n")
+    .slice(-12)
+    .find((line) => isNearDuplicateTranscript(candidate, line));
+}
+
+function buildCurrentMeetingMemory({
+  repeatedQuestion,
+  turns,
+  unresolvedQuestion,
+}: {
+  repeatedQuestion: RepeatedQuestion | null;
+  turns: BufferedSessionTurn[];
+  unresolvedQuestion: string;
+}) {
+  const spokenTurns = turns.filter((turn) => turn.speaker !== "assistant");
+  const importantPoints = spokenTurns
+    .filter((turn) =>
+      /\b(decid|agree|action|owner|deadline|today|tomorrow|yesterday|block|risk|issue|task|follow[ -]?up|need|must|should|will|plan|require)/i.test(
+        turn.content
+      )
+    )
+    .slice(-16)
+    .map((turn) => `- ${compactMemoryLine(turn.content, 420)}`);
+  const recentQuestions = spokenTurns
+    .filter((turn) => looksLikeQuestion(turn.content))
     .slice(-8)
-    .some((line) => isNearDuplicateTranscript(candidate, line));
+    .map((turn) => `- ${compactMemoryLine(turn.content, 500)}`);
+
+  return [
+    "Current meeting working memory:",
+    "Treat pause-separated speech as one connected discussion. Resolve pronouns and short follow-ups from this memory before answering.",
+    unresolvedQuestion
+      ? `Open question to answer: ${compactMemoryLine(unresolvedQuestion, 900)}`
+      : "",
+    repeatedQuestion
+      ? `Repeated unresolved question (${repeatedQuestion.count} times): ${compactMemoryLine(repeatedQuestion.text, 900)}`
+      : "",
+    importantPoints.length
+      ? `Decisions, tasks, blockers, and commitments mentioned:\n${importantPoints.join("\n")}`
+      : "",
+    recentQuestions.length
+      ? `Recent question trail:\n${recentQuestions.join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 9000);
+}
+
+function looksLikeQuestion(value: string) {
+  const text = stripTranscriptSpeakerLabel(value).toLowerCase().trim();
+
+  return (
+    text.includes("?") ||
+    /^(what|why|how|when|where|who|which|can|could|would|will|do|does|did|are|is|should|tell me|explain)\b/.test(
+      text
+    ) ||
+    /\b(can you|could you|would you|do you|what do you|how do you|any thoughts|your thoughts|your view|what about|right)\s*[?.!]*$/.test(
+      text
+    )
+  );
+}
+
+function stripTranscriptSpeakerLabel(value: string) {
+  return value
+    .replace(
+      /^(user(?:\s*\([^)]*\))?|you|other|interviewer|candidate):\s*/i,
+      ""
+    )
+    .trim();
+}
+
+function compactMemoryLine(value: string, maxLength: number) {
+  return stripTranscriptSpeakerLabel(value)
+    .replace(/\s+/g, " ")
+    .slice(0, maxLength);
 }
 
 async function hasAudibleSpeech(audio: Blob) {

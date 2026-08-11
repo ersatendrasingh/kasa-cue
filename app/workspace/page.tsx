@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import type { ActiveWorkspaceSession } from "@/components/workspace/types";
 import CopilotApp from "@/components/copilot-app";
 import { prisma } from "@/lib/prisma";
+import { buildSessionContextMemory } from "@/lib/session-context-memory";
 import { redirect } from "next/navigation";
 
 type WorkspacePageProps = {
@@ -66,7 +67,7 @@ export default async function WorkspacePage({ searchParams }: WorkspacePageProps
           orderBy: {
             createdAt: "desc",
           },
-          take: 20,
+          take: 40,
           select: {
             content: true,
             speaker: true,
@@ -195,11 +196,13 @@ function buildHistorySnapshot({
     .slice(0, 2200);
   const history = recentSessions
     .map((savedSession) => {
-      const timeline = savedSession.turns
+      const chronologicalTurns = savedSession.turns
         .slice()
-        .reverse()
-        .map((turn) => `${formatSpeaker(turn.speaker)}: ${turn.content.slice(0, 700)}`)
-        .join("\n");
+        .reverse();
+      const memory = buildSessionContextMemory(chronologicalTurns).slice(
+        0,
+        1400
+      );
 
       return [
         savedSession.id === activeSessionId
@@ -207,19 +210,13 @@ function buildHistorySnapshot({
           : "Previous meeting history",
         `Date: ${savedSession.startedAt.toISOString()}`,
         savedSession.title ? `Title: ${savedSession.title}` : "",
-        timeline,
+        memory,
       ]
         .filter(Boolean)
         .join("\n");
     })
     .join("\n\n")
-    .slice(0, 3800);
+    .slice(0, 10000);
 
-  return [documents, history].filter(Boolean).join("\n\n").slice(0, 6000);
-}
-
-function formatSpeaker(speaker: string) {
-  if (speaker === "assistant") return "Previous suggested reply";
-  if (speaker === "other") return "Other speaker";
-  return "User";
+  return [documents, history].filter(Boolean).join("\n\n").slice(0, 12000);
 }

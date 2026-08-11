@@ -24,13 +24,20 @@ export function LiveTranscriptStrip({
   const [displayedText, setDisplayedText] = useState("");
   const targetTextRef = useRef(sourceText);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const lastPaintAtRef = useRef(0);
 
   useEffect(() => {
     targetTextRef.current = sourceText;
   }, [sourceText]);
 
   useEffect(() => {
-    const typingTimer = window.setInterval(() => {
+    function paintFrame(now: number) {
+      animationFrameRef.current = window.requestAnimationFrame(paintFrame);
+
+      if (now - lastPaintAtRef.current < 24) return;
+      lastPaintAtRef.current = now;
+
       setDisplayedText((currentText) => {
         const targetText = targetTextRef.current;
 
@@ -39,15 +46,41 @@ export function LiveTranscriptStrip({
         }
 
         if (targetText.startsWith(currentText)) {
-          return targetText.slice(0, currentText.length + 1);
+          const remainingCharacters = targetText.length - currentText.length;
+          const catchUpStep = Math.min(
+            6,
+            Math.max(1, Math.ceil(remainingCharacters / 24))
+          );
+
+          return targetText.slice(0, currentText.length + catchUpStep);
         }
 
+        // Recognition revises unstable trailing words. Keep the shared stable
+        // phrase and type the corrected suffix forward instead of replacing
+        // the whole line in one visible jump.
         const sharedLength = getSharedPrefixLength(currentText, targetText);
-        return targetText.slice(0, sharedLength + 1);
-      });
-    }, 16);
+        const stableWordEnd = targetText.lastIndexOf(" ", sharedLength - 1) + 1;
+        const stableLength = Math.max(0, stableWordEnd);
+        const remainingCharacters = targetText.length - stableLength;
+        const correctionStep = Math.min(
+          6,
+          Math.max(1, Math.ceil(remainingCharacters / 24))
+        );
 
-    return () => window.clearInterval(typingTimer);
+        return targetText.slice(
+          0,
+          Math.min(targetText.length, stableLength + correctionStep)
+        );
+      });
+    }
+
+    animationFrameRef.current = window.requestAnimationFrame(paintFrame);
+
+    return () => {
+      if (animationFrameRef.current) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {

@@ -10,7 +10,7 @@ export function buildSessionContextMemory(turns: SessionTurnForMemory[]) {
       speaker: turn.speaker,
     }))
     .filter((turn) => turn.content)
-    .slice(-60);
+    .slice(-100);
 
   const latestUserLine = [...recentTurns]
     .reverse()
@@ -26,6 +26,27 @@ export function buildSessionContextMemory(turns: SessionTurnForMemory[]) {
     .filter((turn) => turn.speaker === "assistant")
     .map((turn) => compactLine(turn.content))
     .slice(-12);
+  const questionTrail = recentTurns
+    .filter(
+      (turn) =>
+        turn.speaker !== "assistant" &&
+        (turn.content.includes("?") ||
+          /^(what|why|how|when|where|who|which|can|could|would|will|do|does|did|are|is|should|tell me|explain)\b/i.test(
+            turn.content.trim()
+          ))
+    )
+    .map((turn) => compactLine(turn.content, 500))
+    .slice(-12);
+  const importantTrail = recentTurns
+    .filter(
+      (turn) =>
+        turn.speaker !== "assistant" &&
+        /\b(decid|agree|action|owner|deadline|today|tomorrow|yesterday|block|risk|issue|task|follow[ -]?up|need|must|should|will|plan|require)/i.test(
+          turn.content
+        )
+    )
+    .map((turn) => compactLine(turn.content, 500))
+    .slice(-20);
 
   return [
     "Active session memory:",
@@ -34,6 +55,10 @@ export function buildSessionContextMemory(turns: SessionTurnForMemory[]) {
     latestAssistantAnswer
       ? `Last assistant answer summary: ${compactLine(latestAssistantAnswer, 500)}`
       : "",
+    importantTrail.length
+      ? `Remembered decisions, tasks, blockers, dates, and commitments:\n${importantTrail.join("\n")}`
+      : "",
+    questionTrail.length ? `Recent question trail:\n${questionTrail.join("\n")}` : "",
     topicTrail.length ? `Recent discussion trail:\n${topicTrail.join("\n")}` : "",
     answerTrail.length ? `Recent Kasa reply trail:\n${answerTrail.join("\n")}` : "",
   ]
