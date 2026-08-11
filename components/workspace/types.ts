@@ -72,4 +72,11 @@ export type SpeechWindow = Window & {
   __KASA_NATIVE_IOS__?: boolean;
   SpeechRecognition?: SpeechRecognitionConstructor;
   webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  webkit?: {
+    messageHandlers?: {
+      kasaNative?: {
+        postMessage: (message: Record<string, unknown>) => void;
+      };
+    };
+  };
 };

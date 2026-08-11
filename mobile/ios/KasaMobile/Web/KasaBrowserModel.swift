@@ -1,5 +1,6 @@
 import AVFAudio
 import Combine
+import Speech
 import SwiftUI
 import UIKit
 import WebKit
@@ -16,6 +17,15 @@ final class KasaBrowserModel: NSObject, ObservableObject {
     let webView: WKWebView
 
     private var observations: [NSKeyValueObservation] = []
+    private let audioEngine = AVAudioEngine()
+    private var speechRecognizer: SFSpeechRecognizer?
+    private var speechRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var speechTask: SFSpeechRecognitionTask?
+    private var speechRestartTask: Task<Void, Never>?
+    private var requestedSpeechLanguage = "en-US"
+    private var nativeTranscriptionRequested = false
+    private var didRequestInitialPermissions = false
+    private var hasSpeechAudioTap = false
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -36,6 +46,8 @@ final class KasaBrowserModel: NSObject, ObservableObject {
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
+
+        contentController.add(self, name: "kasaNative")
 
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -87,11 +99,16 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         UIApplication.shared.open(settingsURL)
     }
 
-    func requestMicrophoneAccessIfNeeded() {
+    func requestInitialAudioPermissions() {
+        guard !didRequestInitialPermissions else { return }
+        didRequestInitialPermissions = true
+        requestMicrophoneAccessIfNeeded()
+    }
+
+    private func requestMicrophoneAccessIfNeeded() {
         switch AVAudioApplication.shared.recordPermission {
         case .granted:
-            configureAudioSession()
-            isMicrophonePermissionBlocked = false
+            requestSpeechRecognitionAccessIfNeeded()
         case .denied:
             isMicrophonePermissionBlocked = true
         case .undetermined:
@@ -99,8 +116,31 @@ final class KasaBrowserModel: NSObject, ObservableObject {
                 Task { @MainActor in
                     self?.isMicrophonePermissionBlocked = !granted
                     if granted {
-                        self?.configureAudioSession()
-                        self?.notifyWebViewMicrophoneGranted()
+                        self?.requestSpeechRecognitionAccessIfNeeded()
+                    }
+                }
+            }
+        @unknown default:
+            isMicrophonePermissionBlocked = true
+        }
+    }
+
+    private func requestSpeechRecognitionAccessIfNeeded() {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            isMicrophonePermissionBlocked = false
+            notifyWebViewMicrophoneGranted()
+            startSpeechCaptureIfPossible()
+        case .denied, .restricted:
+            isMicrophonePermissionBlocked = true
+        case .notDetermined:
+            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.isMicrophonePermissionBlocked = status != .authorized
+                    if status == .authorized {
+                        self.notifyWebViewMicrophoneGranted()
+                        self.startSpeechCaptureIfPossible()
                     }
                 }
             }
@@ -149,6 +189,141 @@ final class KasaBrowserModel: NSObject, ObservableObject {
             options: [.allowBluetoothHFP]
         )
         try? session.setActive(true)
+    }
+
+    private func startNativeTranscription(language: String) {
+        nativeTranscriptionRequested = true
+        requestedSpeechLanguage = Self.speechLocale(for: language)
+
+        guard AVAudioApplication.shared.recordPermission == .granted,
+              SFSpeechRecognizer.authorizationStatus() == .authorized
+        else {
+            requestInitialAudioPermissions()
+            return
+        }
+
+        startSpeechCaptureIfPossible()
+    }
+
+    private func startSpeechCaptureIfPossible() {
+        guard nativeTranscriptionRequested,
+              !audioEngine.isRunning,
+              let recognizer = SFSpeechRecognizer(locale: Locale(identifier: requestedSpeechLanguage)),
+              recognizer.isAvailable
+        else { return }
+
+        configureAudioSession()
+        speechRecognizer = recognizer
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.addsPunctuation = true
+        request.taskHint = .dictation
+        speechRequest = request
+
+        let inputNode = audioEngine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            scheduleSpeechRestart()
+            return
+        }
+
+        if hasSpeechAudioTap {
+            inputNode.removeTap(onBus: 0)
+            hasSpeechAudioTap = false
+        }
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            request.append(buffer)
+        }
+        hasSpeechAudioTap = true
+
+        audioEngine.prepare()
+        do {
+            try audioEngine.start()
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            hasSpeechAudioTap = false
+            scheduleSpeechRestart()
+            return
+        }
+
+        speechTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            Task { @MainActor in
+                guard let self, self.nativeTranscriptionRequested else { return }
+
+                if let result {
+                    let text = result.bestTranscription.formattedString
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty {
+                        self.sendNativeTranscript(text, isFinal: result.isFinal)
+                    }
+                    if result.isFinal {
+                        self.scheduleSpeechRestart()
+                        return
+                    }
+                }
+
+                if error != nil {
+                    self.scheduleSpeechRestart()
+                }
+            }
+        }
+    }
+
+    private func scheduleSpeechRestart() {
+        tearDownSpeechCapture()
+        guard nativeTranscriptionRequested else { return }
+
+        speechRestartTask?.cancel()
+        speechRestartTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.startSpeechCaptureIfPossible()
+            }
+        }
+    }
+
+    private func stopNativeTranscription() {
+        nativeTranscriptionRequested = false
+        speechRestartTask?.cancel()
+        speechRestartTask = nil
+        tearDownSpeechCapture()
+    }
+
+    private func tearDownSpeechCapture() {
+        speechTask?.cancel()
+        speechTask = nil
+        speechRequest?.endAudio()
+        speechRequest = nil
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        if hasSpeechAudioTap {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            hasSpeechAudioTap = false
+        }
+    }
+
+    private func sendNativeTranscript(_ text: String, isFinal: Bool) {
+        let payload: [String: Any] = ["text": text, "isFinal": isFinal]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+
+        webView.evaluateJavaScript(
+            "window.dispatchEvent(new CustomEvent('kasa:native-transcript',{detail:\(json)}));"
+        )
+    }
+
+    private static func speechLocale(for language: String) -> String {
+        switch language.lowercased() {
+        case "hindi", "hinglish", "hi", "hi-in":
+            return "hi-IN"
+        case "en-gb", "british":
+            return "en-GB"
+        default:
+            return "en-US"
+        }
     }
 
     private func notifyWebViewMicrophoneGranted() {
@@ -200,7 +375,9 @@ extension KasaBrowserModel: WKNavigationDelegate {
         isLoading = false
         currentURL = webView.url
         if webView.url?.path.hasPrefix("/workspace") == true {
-            requestMicrophoneAccessIfNeeded()
+            requestInitialAudioPermissions()
+        } else {
+            stopNativeTranscription()
         }
     }
 
@@ -226,6 +403,27 @@ extension KasaBrowserModel: WKNavigationDelegate {
 
         isLoading = false
         lastError = "Kasa couldn't connect. Check your internet and try again."
+    }
+}
+
+extension KasaBrowserModel: WKScriptMessageHandler {
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == "kasaNative",
+              let body = message.body as? [String: Any],
+              let action = body["action"] as? String
+        else { return }
+
+        switch action {
+        case "startTranscription":
+            startNativeTranscription(language: body["language"] as? String ?? "english")
+        case "stopTranscription":
+            stopNativeTranscription()
+        default:
+            break
+        }
     }
 }
 

@@ -44,6 +44,11 @@ type RepeatedQuestion = {
   text: string;
 };
 
+type NativeTranscriptDetail = {
+  isFinal: boolean;
+  text: string;
+};
+
 export default function CopilotApp({ activeSession }: CopilotAppProps) {
   const router = useRouter();
   const [transcript, setTranscript] = useState("");
@@ -1169,7 +1174,13 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     setError("");
 
     if (Boolean((window as SpeechWindow).__KASA_NATIVE_IOS__)) {
-      await startAudioRecording();
+      (window as SpeechWindow).webkit?.messageHandlers?.kasaNative?.postMessage({
+        action: "startTranscription",
+        language: activeSession.language,
+      });
+      setIsListening(true);
+      setListenStatus("Listening");
+      setWarning("");
       return;
     }
 
@@ -1315,12 +1326,50 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
 
   useEffect(() => {
     function handleNativeMicrophoneGranted() {
-      void startAudioRecording();
+      void startListening(true);
+    }
+
+    function handleNativeTranscript(event: Event) {
+      const { detail } = event as CustomEvent<NativeTranscriptDetail>;
+      const spokenText = detail?.text?.trim();
+
+      if (!spokenText) return;
+
+      speechActivityVersionRef.current += 1;
+      const activityVersion = speechActivityVersionRef.current;
+      if (autoAnswerTimerRef.current) {
+        window.clearTimeout(autoAnswerTimerRef.current);
+        autoAnswerTimerRef.current = null;
+      }
+
+      if (awaitingNewUtteranceRef.current) {
+        awaitingNewUtteranceRef.current = false;
+        setUtteranceId((current) => current + 1);
+      }
+
+      setIsListening(true);
+      setListenStatus("Listening");
+      setError("");
+      setLiveTranscript(spokenText);
+
+      if (!detail.isFinal) return;
+
+      finalizeRecognizedSpeech(spokenText, activityVersion);
+      if (utteranceSilenceTimerRef.current) {
+        window.clearTimeout(utteranceSilenceTimerRef.current);
+      }
+      utteranceSilenceTimerRef.current = window.setTimeout(() => {
+        awaitingNewUtteranceRef.current = true;
+      }, 700);
     }
 
     window.addEventListener(
       "kasa:microphone-granted",
       handleNativeMicrophoneGranted
+    );
+    window.addEventListener(
+      "kasa:native-transcript",
+      handleNativeTranscript
     );
     const startTimer = window.setTimeout(() => {
       void startListening(true);
@@ -1331,6 +1380,13 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         "kasa:microphone-granted",
         handleNativeMicrophoneGranted
       );
+      window.removeEventListener(
+        "kasa:native-transcript",
+        handleNativeTranscript
+      );
+      (window as SpeechWindow).webkit?.messageHandlers?.kasaNative?.postMessage({
+        action: "stopTranscription",
+      });
       window.clearTimeout(startTimer);
       shouldKeepListeningRef.current = false;
       recognitionRef.current?.stop();
@@ -1375,6 +1431,9 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     if (isEnding) return;
     setIsEnding(true);
     shouldKeepListeningRef.current = false;
+    (window as SpeechWindow).webkit?.messageHandlers?.kasaNative?.postMessage({
+      action: "stopTranscription",
+    });
     discardRecordingRef.current = true;
     stopMicrophoneCapture();
     stopMeetingAudioCapture();
@@ -1420,7 +1479,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           onEnd={() => void endSession()}
           onListeningClick={() =>
             void (isNativeIOS
-              ? startAudioRecording()
+              ? startListening(true)
               : startMeetingAudioCapture())
           }
         />

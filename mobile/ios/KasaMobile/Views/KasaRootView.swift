@@ -54,8 +54,11 @@ struct KasaRootView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: browser.isLoading)
         .animation(.easeInOut(duration: 0.2), value: connectivity.isConnected)
+        .task {
+            browser.requestInitialAudioPermissions()
+        }
         .alert(
-            "Allow microphone access",
+            "Allow audio access",
             isPresented: $browser.isMicrophonePermissionBlocked
         ) {
             Button("Open Settings") {
@@ -63,7 +66,7 @@ struct KasaRootView: View {
             }
             Button("Not now", role: .cancel) {}
         } message: {
-            Text("Kasa needs microphone access to listen and create the live transcript.")
+            Text("Kasa needs microphone and speech-recognition access to create the live transcript. You only need to allow these once.")
         }
     }
 }

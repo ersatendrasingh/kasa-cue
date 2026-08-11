@@ -22,6 +22,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Kasa uses the microphone to transcribe your meeting and prepare live communication suggestions.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Kasa uses speech recognition to show your live meeting transcript smoothly and accurately.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
