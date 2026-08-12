@@ -2,7 +2,6 @@
 
 import {
   CalendarClock,
-  Download,
   FileText,
   Headphones,
   Home,
@@ -101,7 +100,7 @@ export function MobileDashboardMenu({
   const initial = firstName.slice(0, 1).toUpperCase();
 
   return (
-    <div className="fixed inset-0 z-50 lg:hidden">
+    <div className="kasa-mobile-navigation-layer fixed inset-0 z-50 lg:hidden">
       <button
         aria-label="Close navigation"
         className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px] animate-in fade-in duration-200"
@@ -111,7 +110,7 @@ export function MobileDashboardMenu({
       <aside
         aria-labelledby="mobile-navigation-title"
         aria-modal="true"
-        className="relative flex h-[100dvh] w-[min(88vw,350px)] flex-col overflow-hidden border-r border-slate-200 bg-white shadow-2xl animate-in slide-in-from-left duration-200"
+        className="relative flex h-full max-h-full w-[min(88vw,350px)] flex-col overflow-hidden border-r border-slate-200 bg-white shadow-2xl animate-in slide-in-from-left duration-200"
         role="dialog"
       >
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
@@ -217,25 +216,9 @@ export function MobileDashboardMenu({
             </Button>
           </div>
 
-          <div className="mt-3 rounded-2xl border border-slate-200 p-4">
-            <p className="text-sm font-semibold text-slate-950">Desktop app</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              Floating live transcript and answers for your computer.
-            </p>
-            <Button
-              asChild
-              className="mt-3 h-9 w-full gap-2 rounded-xl"
-              variant="outline"
-            >
-              <a href="/api/desktop/download?platform=mac-arm64">
-                <Download className="size-4" />
-                Download app
-              </a>
-            </Button>
-          </div>
         </div>
 
-        <div className="shrink-0 border-t border-slate-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="sticky bottom-0 z-10 shrink-0 border-t border-slate-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
           <Button
             className="h-11 w-full gap-2 rounded-xl text-red-700 hover:bg-red-50 hover:text-red-800"
             disabled={isSigningOut}

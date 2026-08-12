@@ -1,13 +1,12 @@
 "use client";
 
 import { Mic } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { isLikelyTranscriptionArtifact } from "@/lib/transcript-safety";
 
 type LiveTranscriptStripProps = {
   liveTranscript: string;
-  transcript: string;
 };
 
 const EMPTY_TRANSCRIPT =
@@ -15,12 +14,8 @@ const EMPTY_TRANSCRIPT =
 
 export function LiveTranscriptStrip({
   liveTranscript,
-  transcript,
 }: LiveTranscriptStripProps) {
-  const sourceText = useMemo(
-    () => buildVisibleTranscript(transcript, liveTranscript),
-    [liveTranscript, transcript]
-  );
+  const sourceText = buildVisibleTranscript(liveTranscript);
   const [displayedText, setDisplayedText] = useState("");
   const targetTextRef = useRef(sourceText);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
@@ -48,8 +43,8 @@ export function LiveTranscriptStrip({
         if (targetText.startsWith(currentText)) {
           const remainingCharacters = targetText.length - currentText.length;
           const catchUpStep = Math.min(
-            6,
-            Math.max(1, Math.ceil(remainingCharacters / 24))
+            4,
+            Math.max(1, Math.ceil(remainingCharacters / 70))
           );
 
           return targetText.slice(0, currentText.length + catchUpStep);
@@ -63,8 +58,8 @@ export function LiveTranscriptStrip({
         const stableLength = Math.max(0, stableWordEnd);
         const remainingCharacters = targetText.length - stableLength;
         const correctionStep = Math.min(
-          6,
-          Math.max(1, Math.ceil(remainingCharacters / 24))
+          4,
+          Math.max(1, Math.ceil(remainingCharacters / 70))
         );
 
         return targetText.slice(
@@ -147,24 +142,14 @@ export function LiveTranscriptStrip({
   );
 }
 
-function buildVisibleTranscript(transcript: string, liveTranscript: string) {
-  const savedText = transcript.trim();
+function buildVisibleTranscript(liveTranscript: string) {
   const latestLiveText = isLikelyTranscriptionArtifact(liveTranscript)
     ? ""
     : liveTranscript.trim();
-  const savedLastLine = getLastTranscriptLine(savedText);
 
-  return (latestLiveText || savedLastLine || "")
+  return latestLiveText
     .replace(/\s*\n+\s*/g, " ")
     .replace(/\s{2,}/g, " ");
-}
-
-function getLastTranscriptLine(transcript: string) {
-  return transcript
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !isLikelyTranscriptionArtifact(line))
-    .at(-1);
 }
 
 function getSharedPrefixLength(first: string, second: string) {

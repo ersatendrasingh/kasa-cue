@@ -21,6 +21,10 @@ html[data-kasa-native="ios"] {
   bottom: var(--kasa-native-navigation-offset);
 }
 
+.kasa-mobile-navigation-layer {
+  bottom: var(--kasa-native-navigation-offset);
+}
+
 @media (min-width: 640px) {
   .kasa-session-modal {
     bottom: 0;

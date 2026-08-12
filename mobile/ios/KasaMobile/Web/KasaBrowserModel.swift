@@ -1,5 +1,6 @@
 import AVFAudio
 import Combine
+import OSLog
 import Speech
 import SwiftUI
 import UIKit
@@ -13,6 +14,8 @@ final class KasaBrowserModel: NSObject, ObservableObject {
     @Published private(set) var canGoBack = false
     @Published var lastError: String?
     @Published var isMicrophonePermissionBlocked = false
+    @Published private(set) var audioRouteDescription = "iPhone microphone"
+    @Published private(set) var audioCaptureIssue: String?
 
     let webView: WKWebView
 
@@ -26,6 +29,9 @@ final class KasaBrowserModel: NSObject, ObservableObject {
     private var nativeTranscriptionRequested = false
     private var didRequestInitialPermissions = false
     private var hasSpeechAudioTap = false
+    private var audioFailureRetryCount = 0
+    private var lastAudioRouteFingerprint = ""
+    private let logger = Logger(subsystem: "in.getkasa.mobile", category: "AudioCapture")
 
     override init() {
         let configuration = WKWebViewConfiguration()
@@ -57,6 +63,7 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         webView.customUserAgent = "KasaMobile/1.0 iOS"
 
         observeWebView()
+        observeAudioSession()
         load(path: "/dashboard")
     }
 
@@ -181,14 +188,47 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         ]
     }
 
-    private func configureAudioSession() {
+    private func observeAudioSession() {
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(handleAudioRouteChange(_:)),
+            name: AVAudioSession.routeChangeNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(handleAudioMediaServicesReset(_:)),
+            name: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil
+        )
+    }
+
+    private func configureAudioSession() throws {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(
+        try session.setCategory(
             .playAndRecord,
             mode: .voiceChat,
-            options: [.allowBluetoothHFP]
+            options: [.allowBluetoothHFP, .defaultToSpeaker]
         )
-        try? session.setActive(true)
+        try session.setActive(true, options: .notifyOthersOnDeactivation)
+
+        // Bluetooth headphones expose their microphone as an HFP input. Selecting
+        // that input explicitly prevents iOS from silently falling back to the
+        // handset microphone after a route change.
+        if let bluetoothInput = session.availableInputs?.first(where: {
+            $0.portType == .bluetoothHFP
+        }) {
+            try session.setPreferredInput(bluetoothInput)
+        }
+
+        publishCurrentAudioRoute()
     }
 
     private func startNativeTranscription(language: String) {
@@ -212,7 +252,15 @@ final class KasaBrowserModel: NSObject, ObservableObject {
               recognizer.isAvailable
         else { return }
 
-        configureAudioSession()
+        do {
+            try configureAudioSession()
+            audioCaptureIssue = nil
+            audioFailureRetryCount = 0
+        } catch {
+            reportAudioSessionFailure(error)
+            scheduleAudioFailureRestart()
+            return
+        }
         speechRecognizer = recognizer
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -223,7 +271,7 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            scheduleSpeechRestart()
+            scheduleAudioFailureRestart()
             return
         }
 
@@ -242,7 +290,8 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         } catch {
             inputNode.removeTap(onBus: 0)
             hasSpeechAudioTap = false
-            scheduleSpeechRestart()
+            reportAudioSessionFailure(error)
+            scheduleAudioFailureRestart()
             return
         }
 
@@ -269,18 +318,24 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         }
     }
 
-    private func scheduleSpeechRestart() {
+    private func scheduleSpeechRestart(after delay: Duration = .milliseconds(180)) {
         tearDownSpeechCapture()
         guard nativeTranscriptionRequested else { return }
 
         speechRestartTask?.cancel()
         speechRestartTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(180))
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 self?.startSpeechCaptureIfPossible()
             }
         }
+    }
+
+    private func scheduleAudioFailureRestart() {
+        audioFailureRetryCount += 1
+        let delayMilliseconds = min(5_000, 700 * audioFailureRetryCount)
+        scheduleSpeechRestart(after: .milliseconds(delayMilliseconds))
     }
 
     private func stopNativeTranscription() {
@@ -301,6 +356,85 @@ final class KasaBrowserModel: NSObject, ObservableObject {
         if hasSpeechAudioTap {
             audioEngine.inputNode.removeTap(onBus: 0)
             hasSpeechAudioTap = false
+        }
+    }
+
+    @objc private func handleAudioRouteChange(_ notification: Notification) {
+        let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+        let reason = reasonValue.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+        logger.info("Audio route changed; reason=\(String(describing: reason), privacy: .public)")
+        let didActuallyChange = publishCurrentAudioRoute()
+
+        guard nativeTranscriptionRequested, didActuallyChange else { return }
+        audioFailureRetryCount = 0
+        scheduleSpeechRestart(after: .milliseconds(350))
+    }
+
+    @objc private func handleAudioInterruption(_ notification: Notification) {
+        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType)
+        else { return }
+
+        switch type {
+        case .began:
+            audioCaptureIssue = "A call is using iPhone audio. Kasa will resume when iOS releases the microphone."
+            logger.notice("Audio capture interrupted by another audio session")
+            tearDownSpeechCapture()
+        case .ended:
+            audioCaptureIssue = nil
+            audioFailureRetryCount = 0
+            guard nativeTranscriptionRequested else { return }
+            scheduleSpeechRestart(after: .milliseconds(500))
+        @unknown default:
+            break
+        }
+    }
+
+    @objc private func handleAudioMediaServicesReset(_ notification: Notification) {
+        logger.notice("iOS audio services reset; rebuilding the capture pipeline")
+        guard nativeTranscriptionRequested else { return }
+        scheduleSpeechRestart(after: .milliseconds(500))
+    }
+
+    @discardableResult
+    private func publishCurrentAudioRoute() -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        let inputs = session.currentRoute.inputs.map(\.portName)
+        let outputs = session.currentRoute.outputs.map(\.portName)
+        let inputLabel = inputs.isEmpty ? "No input" : inputs.joined(separator: ", ")
+        let outputLabel = outputs.isEmpty ? "No output" : outputs.joined(separator: ", ")
+        let fingerprint = "\(inputLabel)|\(outputLabel)"
+        let didChange = fingerprint != lastAudioRouteFingerprint
+        lastAudioRouteFingerprint = fingerprint
+        audioRouteDescription = "\(inputLabel) → \(outputLabel)"
+
+        logger.info(
+            "Active route input=\(inputLabel, privacy: .public), output=\(outputLabel, privacy: .public)"
+        )
+
+        let payload: [String: Any] = [
+            "input": inputLabel,
+            "output": outputLabel,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8)
+        else { return didChange }
+        webView.evaluateJavaScript(
+            "window.dispatchEvent(new CustomEvent('kasa:native-audio-route',{detail:\(json)}));"
+        )
+        return didChange
+    }
+
+    private func reportAudioSessionFailure(_ error: Error) {
+        let nsError = error as NSError
+        logger.error(
+            "Audio capture failed domain=\(nsError.domain, privacy: .public) code=\(nsError.code) message=\(nsError.localizedDescription, privacy: .public)"
+        )
+
+        if nsError.code == AVAudioSession.ErrorCode.insufficientPriority.rawValue {
+            audioCaptureIssue = "The active call owns iPhone audio, so iOS is not providing its sound to Kasa."
+        } else {
+            audioCaptureIssue = "Audio input paused. Kasa is reconnecting automatically."
         }
     }
 

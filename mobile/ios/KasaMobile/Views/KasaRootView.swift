@@ -38,6 +38,18 @@ struct KasaRootView: View {
                         .background(Color.orange)
                 }
 
+                if let issue = browser.audioCaptureIssue,
+                   browser.currentURL?.path.hasPrefix("/workspace") == true {
+                    Label(issue, systemImage: "waveform.slash")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .foregroundStyle(Color.orange)
+                        .background(Color.orange.opacity(0.1))
+                }
+
                 if browser.isLoading && browser.currentURL != nil {
                     GeometryReader { geometry in
                         Capsule()

@@ -16,6 +16,7 @@ import {
   SessionTopBar,
 } from "@/components/workspace/session-top-bar";
 import {
+  cleanSpeechDisfluencies,
   isLikelyTranscriptionArtifact,
   isNearDuplicateTranscript,
 } from "@/lib/transcript-safety";
@@ -582,99 +583,40 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
     setVisibleReply(nextReply);
   }
 
-  async function refineTranscriptLine(rawText: string) {
-    const response = await fetch("/api/openai/clean-transcript", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        context: [
-          activeSession.title,
-          activeSession.context,
-          activeSession.instructions,
-          getRecentTranscript(transcriptRef.current),
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        language: activeSession.language,
-        text: rawText,
-      }),
-    });
-    const data = (await response.json()) as {
-      error?: string;
-      transcript?: string;
-    };
-
-    if (!response.ok || !data.transcript?.trim()) {
-      throw new Error(data.error ?? "Transcript cleanup failed.");
-    }
-
-    return data.transcript.trim();
-  }
-
   function finalizeRecognizedSpeech(
     rawText: string,
     activityVersion: number
   ) {
-    if (isLikelyTranscriptionArtifact(rawText)) {
-      return;
+    const cleanText = cleanSpeechDisfluencies(rawText);
+
+    if (!cleanText || isLikelyTranscriptionArtifact(cleanText)) {
+      return false;
     }
 
-    const repeatedLine = findRecentDuplicateLine(transcriptRef.current, rawText);
+    const repeatedLine = findRecentDuplicateLine(
+      transcriptRef.current,
+      cleanText
+    );
 
     if (repeatedLine) {
-      rememberRepeatedQuestion(rawText, repeatedLine);
-      return;
+      rememberRepeatedQuestion(cleanText, repeatedLine);
+      return false;
     }
 
-    const nextTranscript = [transcriptRef.current.trim(), rawText]
+    const nextTranscript = [transcriptRef.current.trim(), cleanText]
       .filter(Boolean)
       .join("\n");
-    const transcriptLineIndex = nextTranscript.split("\n").length - 1;
-    const pendingIndex = pendingSpeakerTurnRef.current.length;
     const bufferedTurn: BufferedSessionTurn = {
-      content: rawText,
+      content: cleanText,
       createdAt: new Date().toISOString(),
       speaker: "other",
     };
 
     transcriptRef.current = nextTranscript;
-    pendingSpeakerTurnRef.current.push(rawText);
+    pendingSpeakerTurnRef.current.push(cleanText);
     bufferedTurnsRef.current.push(bufferedTurn);
     rememberConversationTurn(bufferedTurn);
     setTranscript(nextTranscript);
-
-    void refineTranscriptLine(rawText)
-      .then((correctedText) => {
-        if (!correctedText || correctedText === rawText) return;
-
-        const transcriptLines = transcriptRef.current.split("\n");
-
-        if (transcriptLines[transcriptLineIndex] === rawText) {
-          transcriptLines[transcriptLineIndex] = correctedText;
-          const correctedTranscript = transcriptLines.join("\n");
-          transcriptRef.current = correctedTranscript;
-          setTranscript(correctedTranscript);
-        }
-        if (pendingSpeakerTurnRef.current[pendingIndex] === rawText) {
-          pendingSpeakerTurnRef.current[pendingIndex] = correctedText;
-        }
-        if (bufferedTurn.content === rawText) {
-          bufferedTurn.content = correctedText;
-        }
-        setLiveTranscript((currentText) => {
-          const normalizedCurrent = currentText.trim();
-
-          if (normalizedCurrent === rawText) return correctedText;
-          if (normalizedCurrent.endsWith(rawText)) {
-            return `${normalizedCurrent.slice(0, -rawText.length)}${correctedText}`;
-          }
-
-          return currentText;
-        });
-      })
-      .catch(() => undefined);
 
     if (
       autoAnswerRef.current &&
@@ -697,22 +639,20 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         void generateReply(nextTranscript);
       }, 4600);
     }
+
+    return true;
   }
 
   async function transcribeRecordedAudio(
     audio: Blob,
-    source: "meeting" | "microphone" = "microphone"
+    source: "meeting" | "microphone" = "microphone",
+    commitAfter: Promise<void> = Promise.resolve()
   ) {
     const activeListenStatus =
       source === "meeting" ? "Mic + meeting audio" : "Listening";
     setWarning("");
 
     try {
-      if (!(await hasAudibleSpeechWithoutBlocking(audio))) {
-        setListenStatus(activeListenStatus);
-        return;
-      }
-
       const formData = new FormData();
       const transcriptionContext = [
         activeSession.title,
@@ -752,6 +692,11 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
         error?: string;
         transcript?: string;
       };
+
+      // Audio chunks upload and transcribe concurrently, but are committed in
+      // capture order. This removes the growing serial-network backlog that
+      // used to make an older sentence appear several seconds late.
+      await commitAfter.catch(() => undefined);
 
       if (response.status === 422) {
         recordingVisibleTextRef.current = "";
@@ -818,9 +763,6 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       const nextTranscript = [transcriptRef.current.trim(), cleanText]
         .filter(Boolean)
         .join("\n");
-      const transcriptLineIndex = nextTranscript.split("\n").length - 1;
-      const pendingIndex = pendingSpeakerTurnRef.current.length;
-
       transcriptRef.current = nextTranscript;
       pendingSpeakerTurnRef.current.push(cleanText);
       recordingVisibleTextRef.current = startsNewVisibleTurn
@@ -832,7 +774,7 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       }
       setTranscript(nextTranscript);
       setLiveTranscript(recordingVisibleTextRef.current);
-      const bufferedTurn = saveSessionTurn("other", cleanText);
+      saveSessionTurn("other", cleanText);
       setListenStatus(
         source === "meeting"
           ? "Mic + meeting audio"
@@ -840,39 +782,6 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           ? "Listening"
           : "Ready to record"
       );
-
-      // The raw transcription is already visible. Improve uncertain words in
-      // the background without making the live strip wait for a second model.
-      void refineTranscriptLine(cleanText)
-        .then((correctedText) => {
-          if (!correctedText || correctedText === cleanText) return;
-
-          const transcriptLines = transcriptRef.current.split("\n");
-
-          if (transcriptLines[transcriptLineIndex] === cleanText) {
-            transcriptLines[transcriptLineIndex] = correctedText;
-            const correctedTranscript = transcriptLines.join("\n");
-            transcriptRef.current = correctedTranscript;
-            setTranscript(correctedTranscript);
-          }
-          if (pendingSpeakerTurnRef.current[pendingIndex] === cleanText) {
-            pendingSpeakerTurnRef.current[pendingIndex] = correctedText;
-          }
-          if (bufferedTurn.content === cleanText) {
-            bufferedTurn.content = correctedText;
-          }
-          setLiveTranscript((currentText) => {
-            const normalizedCurrent = currentText.trim();
-
-            if (normalizedCurrent === cleanText) return correctedText;
-            if (normalizedCurrent.endsWith(cleanText)) {
-              return `${normalizedCurrent.slice(0, -cleanText.length)}${correctedText}`;
-            }
-
-            return currentText;
-          });
-        })
-        .catch(() => undefined);
 
       if (autoAnswerRef.current) {
         if (autoAnswerTimerRef.current) {
@@ -1059,9 +968,12 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       meetingAudioRecordersRef.current.delete(recorder);
 
       if (audio.size > 1000) {
-        meetingAudioQueueRef.current = meetingAudioQueueRef.current
-          .catch(() => undefined)
-          .then(() => transcribeRecordedAudio(audio, "meeting"));
+        const previousCommit = meetingAudioQueueRef.current;
+        meetingAudioQueueRef.current = transcribeRecordedAudio(
+          audio,
+          "meeting",
+          previousCommit
+        );
       }
     };
     recorder.start();
@@ -1129,9 +1041,12 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       });
       microphoneRecordersRef.current.delete(recorder);
       if (audio.size > 1000 && !discardRecordingRef.current) {
-        audioTranscriptionQueueRef.current = audioTranscriptionQueueRef.current
-          .catch(() => undefined)
-          .then(() => transcribeRecordedAudio(audio));
+        const previousCommit = audioTranscriptionQueueRef.current;
+        audioTranscriptionQueueRef.current = transcribeRecordedAudio(
+          audio,
+          "microphone",
+          previousCommit
+        );
       }
     };
     recorder.start();
@@ -1251,13 +1166,19 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
       if (finalText.trim()) {
         const cleanFinalText = finalText.trim();
         const activityVersion = speechActivityVersionRef.current;
-        speechVisibleTextRef.current = [
-          speechVisibleTextRef.current,
+        const accepted = finalizeRecognizedSpeech(
           cleanFinalText,
-        ]
-          .filter(Boolean)
-          .join(" ");
-        finalizeRecognizedSpeech(cleanFinalText, activityVersion);
+          activityVersion
+        );
+
+        if (accepted) {
+          speechVisibleTextRef.current = [
+            speechVisibleTextRef.current,
+            cleanSpeechDisfluencies(cleanFinalText),
+          ]
+            .filter(Boolean)
+            .join(" ");
+        }
 
         if (utteranceSilenceTimerRef.current) {
           window.clearTimeout(utteranceSilenceTimerRef.current);
@@ -1354,7 +1275,10 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
 
       if (!detail.isFinal) return;
 
-      finalizeRecognizedSpeech(spokenText, activityVersion);
+      const accepted = finalizeRecognizedSpeech(spokenText, activityVersion);
+      if (accepted) {
+        setLiveTranscript(cleanSpeechDisfluencies(spokenText));
+      }
       if (utteranceSilenceTimerRef.current) {
         window.clearTimeout(utteranceSilenceTimerRef.current);
       }
@@ -1508,7 +1432,6 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
             <LiveTranscriptStrip
               key={utteranceId}
               liveTranscript={liveTranscript}
-              transcript={transcript}
             />
 
             <AnswerPanel
@@ -1690,54 +1613,6 @@ function removeOverlappingAudioPrefix(previousChunk: string, nextChunk: string) 
 
 function normalizeAudioWord(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9'-]/g, "");
-}
-
-async function hasAudibleSpeech(audio: Blob) {
-  let audioContext: AudioContext | null = null;
-
-  try {
-    audioContext = new AudioContext();
-    const audioBuffer = await audioContext.decodeAudioData(
-      await audio.arrayBuffer()
-    );
-    let peak = 0;
-    let energy = 0;
-    let samples = 0;
-    let activeSamples = 0;
-
-    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
-      const data = audioBuffer.getChannelData(channel);
-      const sampleStep = Math.max(1, Math.floor(data.length / 60000));
-
-      for (let index = 0; index < data.length; index += sampleStep) {
-        const amplitude = Math.abs(data[index]);
-        peak = Math.max(peak, amplitude);
-        energy += amplitude * amplitude;
-        samples += 1;
-        if (amplitude >= 0.012) activeSamples += 1;
-      }
-    }
-
-    const rms = samples ? Math.sqrt(energy / samples) : 0;
-    const activeRatio = samples ? activeSamples / samples : 0;
-
-    return peak >= 0.018 && (rms >= 0.0025 || activeRatio >= 0.008);
-  } catch {
-    // Some browsers cannot decode their own MediaRecorder container. The
-    // server-side artifact checks still protect the transcript in that case.
-    return true;
-  } finally {
-    await audioContext?.close().catch(() => undefined);
-  }
-}
-
-async function hasAudibleSpeechWithoutBlocking(audio: Blob) {
-  return Promise.race([
-    hasAudibleSpeech(audio),
-    new Promise<true>((resolve) => {
-      window.setTimeout(() => resolve(true), 500);
-    }),
-  ]);
 }
 
 function getSafeErrorMessage(message: string) {
