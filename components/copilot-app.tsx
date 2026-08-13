@@ -10,6 +10,7 @@ import {
   type ChatIntent,
 } from "@/components/workspace/chat-composer";
 import { LiveTranscriptStrip } from "@/components/workspace/live-transcript-strip";
+import { FloatingKasaWindow } from "@/components/workspace/floating-kasa-window";
 import { modeOptions } from "@/components/workspace/options";
 import {
   MobileAnswerDock,
@@ -1397,6 +1398,18 @@ export default function CopilotApp({ activeSession }: CopilotAppProps) {
           }
           listenStatus={
             isMeetingAudioCapturing ? "Mic + meeting audio" : listenStatus
+          }
+          floatingControl={
+            !isNativeIOS ? (
+              <FloatingKasaWindow
+                canAnswer={Boolean(getRecentTranscript(transcript))}
+                isGenerating={isGenerating}
+                isListening={isListening || isMeetingAudioCapturing}
+                liveTranscript={liveTranscript}
+                visibleReply={visibleReply}
+                onAnswer={() => void generateReply()}
+              />
+            ) : undefined
           }
           onAnswer={() => void generateReply()}
           onAutoAnswerChange={setAutoAnswer}

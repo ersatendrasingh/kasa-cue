@@ -127,7 +127,7 @@ export function AnswerPanel({
   );
 }
 
-function FormattedAnswer({ value }: { value: string }) {
+export function FormattedAnswer({ value }: { value: string }) {
   const parts = splitMarkdownCodeBlocks(value);
 
   return (

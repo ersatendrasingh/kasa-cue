@@ -8,6 +8,7 @@ import {
   WandSparkles,
 } from "lucide-react";
 import Image from "next/image";
+import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ type SessionTopBarProps = {
   isListening: boolean;
   listeningActionLabel: string;
   listenStatus: string;
+  floatingControl?: ReactNode;
   onAnswer: () => void;
   onAutoAnswerChange: (enabled: boolean) => void;
   onEnd: () => void;
@@ -43,6 +45,7 @@ export function SessionTopBar({
   isListening,
   listeningActionLabel,
   listenStatus,
+  floatingControl,
   onAnswer,
   onAutoAnswerChange,
   onEnd,
@@ -99,6 +102,8 @@ export function SessionTopBar({
               Auto
             </Label>
           </div>
+
+          {floatingControl}
 
           <Button
             aria-label="End session"
